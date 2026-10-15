@@ -32,33 +32,52 @@ namespace CutoutEqD.App
         private bool _suppressThresholdEvent;
 
         // Controls
-        private readonly Label _scaleInfo = new() { AutoSize = false, Size = new Size(240, 64) };
-        private readonly CheckBox _autoThreshold = new() { Text = "Automatic threshold", Checked = true, AutoSize = true };
-        private readonly TrackBar _threshold = new() { Minimum = 1, Maximum = 255, Value = 128, TickFrequency = 16, Width = 200, Enabled = false };
-        private readonly Label _thresholdValue = new() { AutoSize = true, Text = "128" };
-        private readonly NumericUpDown _blur = new() { Minimum = 0, Maximum = 5, DecimalPlaces = 1, Increment = 0.5m, Value = 1.0m, Width = 60 };
-        private readonly CheckBox _softDrag = new() { Text = "Soft drag (moves neighbours)", AutoSize = true };
-        private readonly CheckBox _loupe = new() { Text = "Show magnifier", Checked = true, AutoSize = true };
-        private readonly Label _eqd = new() { AutoSize = true, Font = new Font(SystemFonts.DefaultFont.FontFamily, 20f, FontStyle.Bold), Text = "—" };
-        private readonly Label _details = new() { AutoSize = true, MaximumSize = new Size(260, 0) };
-        private readonly Label _help = new() { AutoSize = true, MaximumSize = new Size(260, 0), ForeColor = SystemColors.GrayText };
+        private readonly Label _scaleHint = Hint("");
+        private readonly MetricRow _scaleRef = new("Reference");
+        private readonly MetricRow _scaleRes = new("Resolution");
+        private readonly ToggleSwitch _autoThreshold = new("Automatic threshold", on: true);
+        private readonly TrackBar _threshold = new() { Minimum = 1, Maximum = 255, Value = 128, TickFrequency = 16, TickStyle = TickStyle.None, Width = 210, Enabled = false, Margin = new Padding(0, 0, 0, 0) };
+        private readonly Label _thresholdValue = new() { AutoSize = false, Size = new Size(36, 26), Text = "128", TextAlign = ContentAlignment.MiddleRight, Font = Theme.UiFont, ForeColor = Theme.Text };
+        private readonly NumericUpDown _blur = new() { Minimum = 0, Maximum = 5, DecimalPlaces = 1, Increment = 0.5m, Value = 1.0m, Width = 64, Font = Theme.UiFont, BorderStyle = BorderStyle.FixedSingle };
+        private readonly ToggleSwitch _softDrag = new("Soft drag (moves neighbours)");
+        private readonly ToggleSwitch _loupe = new("Show magnifier", on: true);
+        private readonly Label _eqd = new() { AutoSize = true, Font = Theme.ResultFont, ForeColor = Theme.Accent, Text = "—", Margin = new Padding(0, 0, 0, 6) };
+        private readonly MetricRow _area = new("Area");
+        private readonly MetricRow _perimeter = new("Perimeter");
+        private readonly MetricRow _fourAP = new("4A/P");
+        private readonly MetricRow _vertices = new("Vertices");
+        private readonly Label _resultNote = Hint("");
+        private readonly Callout _help = new();
+        private Card _scaleCard = null!, _outlineCard = null!, _resultCard = null!;
         private readonly ToolStripStatusLabel _statusMsg = new() { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
         private readonly ToolStripStatusLabel _statusPos = new() { AutoSize = false, Width = 380, TextAlign = ContentAlignment.MiddleRight };
         private readonly ToolStripStatusLabel _statusZoom = new() { AutoSize = false, Width = 90 };
         private readonly Dictionary<CanvasMode, ToolStripButton> _modeButtons = new();
+        private readonly Dictionary<CanvasMode, (Image? normal, Image? active)> _modeIcons = new();
+        private readonly Dictionary<CanvasMode, ModernButton> _sideModeButtons = new();
+        private ToolStripButton _undoButton = null!, _redoButton = null!;
 
         public MainForm()
         {
+            SuspendLayout();
+            // Layout below is in 96-dpi pixels; WinForms scales it to the monitor's DPI.
+            AutoScaleDimensions = new SizeF(96F, 96F);
+            AutoScaleMode = AutoScaleMode.Dpi;
             Text = "Cutout Equivalent Diameter";
-            Width = 1300; Height = 900;
+            Font = Theme.UiFont;
+            BackColor = Theme.Window;
+            ForeColor = Theme.Text;
+            Width = 1320; Height = 900;
+            MinimumSize = new Size(900, 600);
             StartPosition = FormStartPosition.CenterScreen;
             KeyPreview = true;
             AllowDrop = true;
-            AutoScaleMode = AutoScaleMode.Dpi;
 
+            var renderer = new ModernToolStripRenderer();
             BuildToolStrip(out var tools);
+            tools.Renderer = renderer;
             var side = BuildSidePanel();
-            var status = new StatusStrip();
+            var status = new StatusStrip { Renderer = renderer, SizingGrip = false, Font = Theme.SmallFont, Padding = new Padding(8, 2, 8, 2) };
             status.Items.AddRange(new ToolStripItem[] { _statusMsg, _statusZoom, _statusPos });
 
             Controls.Add(_canvas);
@@ -73,7 +92,12 @@ namespace CutoutEqD.App
             _canvas.StatusMessage += (_, m) => _statusMsg.Text = m;
             _canvas.ModeChanged += (_, _) => UpdateModeUi();
             _canvas.MouseImagePositionChanged += (_, p) => UpdateMousePos(p);
-            _canvas.Paint += (_, _) => _statusZoom.Text = $"Zoom {_canvas.Zoom * 100:F0}%";
+            _canvas.Paint += (_, _) =>
+            {
+                _statusZoom.Text = $"Zoom {_canvas.Zoom * 100:F0}%";
+                _undoButton.Enabled = _canvas.CanUndo;
+                _redoButton.Enabled = _canvas.CanRedo;
+            };
 
             _autoThreshold.CheckedChanged += (_, _) => { _threshold.Enabled = !_autoThreshold.Checked; RedetectIfUnedited(); };
             _threshold.ValueChanged += (_, _) =>
@@ -85,9 +109,16 @@ namespace CutoutEqD.App
             _softDrag.CheckedChanged += (_, _) => _canvas.SoftDrag = _softDrag.Checked;
             _loupe.CheckedChanged += (_, _) => { _canvas.ShowLoupe = _loupe.Checked; _canvas.Invalidate(); };
 
-            DragEnter += (_, e) => { if (e.Data?.GetDataPresent(DataFormats.FileDrop) == true) e.Effect = DragDropEffects.Copy; };
+            DragEnter += (_, e) =>
+            {
+                if (e.Data?.GetDataPresent(DataFormats.FileDrop) != true) return;
+                e.Effect = DragDropEffects.Copy;
+                _canvas.DropHighlight = true;
+            };
+            DragLeave += (_, _) => _canvas.DropHighlight = false;
             DragDrop += (_, e) =>
             {
+                _canvas.DropHighlight = false;
                 if (e.Data?.GetData(DataFormats.FileDrop) is string[] files && files.Length > 0) LoadImageFile(files[0]);
             };
 
@@ -95,36 +126,95 @@ namespace CutoutEqD.App
             UpdateResults();
             UpdateScaleInfo();
             _statusMsg.Text = "Open or paste a scanned image of the cutout with a ruler alongside.";
+            ResumeLayout(false);
+            PerformLayout();
+        }
+
+        protected override void OnLoad(EventArgs e)
+        {
+            base.OnLoad(e);
+            // After DPI scaling the default size can exceed small or high-scale screens.
+            var wa = Screen.FromControl(this).WorkingArea;
+            if (Width > wa.Width || Height > wa.Height)
+            {
+                Size = new Size(Math.Min(Width, wa.Width), Math.Min(Height, wa.Height));
+                Location = new Point(wa.Left + (wa.Width - Width) / 2, wa.Top + (wa.Height - Height) / 2);
+            }
         }
 
         // ---------------- UI construction ----------------
 
-        private void BuildToolStrip(out ToolStrip tools)
+        private static Label Hint(string text) => new()
         {
-            tools = new ToolStrip { GripStyle = ToolStripGripStyle.Hidden, ImageScalingSize = new Size(20, 20), Padding = new Padding(4, 2, 4, 2) };
-            tools.Items.Add(new ToolStripButton("Open…", null, (_, _) => OpenImage()) { ToolTipText = "Open image (Ctrl+O)" });
-            tools.Items.Add(new ToolStripButton("Paste", null, (_, _) => PasteImage()) { ToolTipText = "Paste image from clipboard (Ctrl+V)" });
-            tools.Items.Add(new ToolStripSeparator());
+            Text = text, AutoSize = true, MaximumSize = new Size(Card.ContentWidth, 0), ForeColor = Theme.TextMuted,
+            Font = Theme.SmallFont, Margin = new Padding(0, 2, 0, 8)
+        };
 
-            AddMode(tools, CanvasMode.Scale, "1  Set scale", "S", "Click two points on the ruler, then enter the distance between them");
-            AddMode(tools, CanvasMode.Detect, "2  Auto-detect", "A", "Click inside the light aperture to find its edge");
-            AddMode(tools, CanvasMode.Draw, "Draw outline", "D", "Click around the edge to draw an outline manually");
-            AddMode(tools, CanvasMode.Edit, "Edit outline", "E", "Drag vertices; click an edge to add one; right-click to delete");
-            AddMode(tools, CanvasMode.Pan, "Pan", "H", "Drag to move the image (middle-drag or Space+drag works in any mode)");
-            tools.Items.Add(new ToolStripSeparator());
+        private static Label Section(string text) => new()
+        {
+            Text = text.ToUpperInvariant(), AutoSize = true, ForeColor = Theme.TextMuted, Font = Theme.SectionFont,
+            Margin = new Padding(0, 10, 0, 4)
+        };
 
-            tools.Items.Add(new ToolStripButton("Undo", null, (_, _) => _canvas.Undo()) { ToolTipText = "Undo outline change (Ctrl+Z)" });
-            tools.Items.Add(new ToolStripButton("Redo", null, (_, _) => _canvas.Redo()) { ToolTipText = "Redo (Ctrl+Y)" });
-            tools.Items.Add(new ToolStripButton("Clear outline", null, (_, _) => { _lastSeed = null; _outlineFromDetection = false; _canvas.SetOutline(null); }));
-            tools.Items.Add(new ToolStripSeparator());
-            tools.Items.Add(new ToolStripButton("Fit", null, (_, _) => _canvas.ZoomToFit()) { ToolTipText = "Zoom to fit (F)" });
-            tools.Items.Add(new ToolStripButton("+", null, (_, _) => _canvas.ZoomBy(1.25)) { ToolTipText = "Zoom in (mouse wheel)" });
-            tools.Items.Add(new ToolStripButton("−", null, (_, _) => _canvas.ZoomBy(1 / 1.25)) { ToolTipText = "Zoom out (mouse wheel)" });
+        private int IconPx => (int)Math.Round(18 * DeviceDpi / 96.0);
+
+        private ToolStripButton ToolButton(string text, string glyph, string tip, Action onClick, bool iconOnly = false)
+        {
+            var img = Theme.Glyph(glyph, Theme.Text, IconPx);
+            var b = new ToolStripButton(text, img, (_, _) => onClick())
+            {
+                ToolTipText = tip,
+                DisplayStyle = img == null ? ToolStripItemDisplayStyle.Text
+                             : iconOnly ? ToolStripItemDisplayStyle.Image : ToolStripItemDisplayStyle.ImageAndText,
+                TextImageRelation = TextImageRelation.ImageBeforeText,
+                Padding = new Padding(6, 4, 6, 4),
+                Margin = new Padding(1, 0, 1, 0),
+            };
+            return b;
         }
 
-        private void AddMode(ToolStrip tools, CanvasMode mode, string text, string key, string tip)
+        private void BuildToolStrip(out ToolStrip tools)
         {
-            var b = new ToolStripButton(text, null, (_, _) => _canvas.Mode = mode) { ToolTipText = $"{tip} ({key})", CheckOnClick = false };
+            tools = new ToolStrip
+            {
+                GripStyle = ToolStripGripStyle.Hidden, ImageScalingSize = new Size(18, 18), Padding = new Padding(8, 6, 8, 6),
+                Font = Theme.UiFont, BackColor = Theme.Surface
+            };
+            tools.Items.Add(ToolButton("Open…", Theme.Icons.Open, "Open image (Ctrl+O)", OpenImage));
+            tools.Items.Add(ToolButton("Paste", Theme.Icons.Paste, "Paste image from clipboard (Ctrl+V)", PasteImage));
+            tools.Items.Add(new ToolStripSeparator());
+
+            AddMode(tools, CanvasMode.Scale, "Set scale", Theme.Icons.Ruler, "S", "Click two points on the ruler, then enter the distance between them");
+            AddMode(tools, CanvasMode.Detect, "Auto-detect", Theme.Icons.Detect, "A", "Click inside the light aperture to find its edge");
+            AddMode(tools, CanvasMode.Draw, "Draw outline", Theme.Icons.Draw, "D", "Click around the edge to draw an outline manually");
+            AddMode(tools, CanvasMode.Edit, "Edit outline", Theme.Icons.Edit, "E", "Drag vertices; click an edge to add one; right-click to delete");
+            AddMode(tools, CanvasMode.Pan, "Pan", Theme.Icons.Pan, "H", "Drag to move the image (middle-drag or Space+drag works in any mode)");
+            tools.Items.Add(new ToolStripSeparator());
+
+            _undoButton = ToolButton("Undo", Theme.Icons.Undo, "Undo outline change (Ctrl+Z)", () => _canvas.Undo(), iconOnly: true);
+            _redoButton = ToolButton("Redo", Theme.Icons.Redo, "Redo (Ctrl+Y)", () => _canvas.Redo(), iconOnly: true);
+            tools.Items.Add(_undoButton);
+            tools.Items.Add(_redoButton);
+            tools.Items.Add(ToolButton("Clear outline", Theme.Icons.Clear, "Remove the outline",
+                () => { _lastSeed = null; _outlineFromDetection = false; _canvas.SetOutline(null); }));
+
+            // Right-aligned view controls (added right to left).
+            foreach (var b in new[]
+            {
+                ToolButton("Fit", Theme.Icons.Fit, "Zoom to fit (F)", () => _canvas.ZoomToFit()),
+                ToolButton("+", Theme.Icons.ZoomIn, "Zoom in (mouse wheel)", () => _canvas.ZoomBy(1.25), iconOnly: true),
+                ToolButton("−", Theme.Icons.ZoomOut, "Zoom out (mouse wheel)", () => _canvas.ZoomBy(1 / 1.25), iconOnly: true),
+            })
+            {
+                b.Alignment = ToolStripItemAlignment.Right;
+                tools.Items.Add(b);
+            }
+        }
+
+        private void AddMode(ToolStrip tools, CanvasMode mode, string text, string glyph, string key, string tip)
+        {
+            var b = ToolButton(text, glyph, $"{tip} ({key})", () => _canvas.Mode = mode);
+            _modeIcons[mode] = (b.Image, Theme.Glyph(glyph, Theme.Accent, IconPx));
             _modeButtons[mode] = b;
             tools.Items.Add(b);
         }
@@ -133,49 +223,55 @@ namespace CutoutEqD.App
         {
             var panel = new FlowLayoutPanel
             {
-                Dock = DockStyle.Right, Width = 290, FlowDirection = FlowDirection.TopDown, WrapContents = false,
-                AutoScroll = true, Padding = new Padding(10), BackColor = SystemColors.Control
+                Dock = DockStyle.Right, Width = 316, FlowDirection = FlowDirection.TopDown, WrapContents = false,
+                AutoScroll = true, Padding = new Padding(12, 12, 4, 12), BackColor = Theme.Window
             };
 
-            GroupBox Group(string title, params Control[] items)
+            ModernButton Btn(string text, string glyph, EventHandler onClick, bool primary = false)
             {
-                // Size the group explicitly from its content (avoids AutoSize/Dock feedback loops).
-                var flow = new FlowLayoutPanel
-                {
-                    FlowDirection = FlowDirection.TopDown, WrapContents = false, AutoSize = true,
-                    AutoSizeMode = AutoSizeMode.GrowAndShrink, Location = new Point(8, 20), Margin = Padding.Empty
-                };
-                flow.Controls.AddRange(items);
-                var gb = new GroupBox { Text = title, Width = 262, Margin = new Padding(0, 0, 0, 10) };
-                gb.Controls.Add(flow);
-                void Fit() => gb.Height = flow.Top + flow.GetPreferredSize(new Size(gb.Width - 16, 0)).Height + 12;
-                flow.SizeChanged += (_, _) => Fit();
-                flow.Layout += (_, _) => Fit();
-                Fit();
-                return gb;
+                var b = new ModernButton(text, glyph, primary) { Width = Card.ContentWidth };
+                b.Click += onClick;
+                return b;
             }
-            Button Btn(string text, EventHandler onClick) { var b = new Button { Text = text, Width = 230, Height = 28 }; b.Click += onClick; return b; }
+            ModernButton ModeBtn(CanvasMode mode, string text, string glyph)
+            {
+                var b = Btn(text, glyph, (_, _) => _canvas.Mode = mode);
+                _sideModeButtons[mode] = b;
+                return b;
+            }
 
-            var setScale = Btn("Set scale on ruler…", (_, _) => _canvas.Mode = CanvasMode.Scale);
-            var editDist = Btn("Change known distance…", (_, _) => PromptForDistance());
-            panel.Controls.Add(Group("1. Scale", _scaleInfo, setScale, editDist));
+            _scaleRef.Margin = new Padding(0, 0, 0, 0);
+            _scaleRes.Margin = new Padding(0, 0, 0, 8);
+            _scaleCard = new Card("Scale", "1",
+                _scaleRef, _scaleRes, _scaleHint,
+                ModeBtn(CanvasMode.Scale, "Set scale on ruler", Theme.Icons.Ruler),
+                Btn("Change known distance…", Theme.Icons.Number, (_, _) => PromptForDistance()));
+            panel.Controls.Add(_scaleCard);
 
-            var thrRow = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, WrapContents = false };
+            var thrRow = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Margin = new Padding(0, 0, 0, 4) };
             thrRow.Controls.Add(_threshold); thrRow.Controls.Add(_thresholdValue);
-            var blurRow = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, WrapContents = false };
-            blurRow.Controls.Add(new Label { Text = "Noise smoothing (px):", AutoSize = true, Padding = new Padding(0, 6, 0, 0) });
+            var blurRow = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Margin = new Padding(0, 2, 0, 2) };
+            blurRow.Controls.Add(new Label
+            {
+                Text = "Noise smoothing (px)", AutoSize = false, Size = new Size(Card.ContentWidth - 70, 26),
+                TextAlign = ContentAlignment.MiddleLeft, Font = Theme.UiFont, ForeColor = Theme.Text, Margin = Padding.Empty
+            });
             blurRow.Controls.Add(_blur);
-            panel.Controls.Add(Group("2. Outline",
-                Btn("Auto-detect (click in aperture)", (_, _) => _canvas.Mode = CanvasMode.Detect),
-                Btn("Draw outline manually", (_, _) => _canvas.Mode = CanvasMode.Draw),
-                Btn("Edit outline", (_, _) => _canvas.Mode = CanvasMode.Edit),
-                _autoThreshold, thrRow, blurRow, _softDrag, _loupe));
+            _outlineCard = new Card("Outline", "2",
+                ModeBtn(CanvasMode.Detect, "Auto-detect (click in aperture)", Theme.Icons.Detect),
+                ModeBtn(CanvasMode.Draw, "Draw outline manually", Theme.Icons.Draw),
+                ModeBtn(CanvasMode.Edit, "Edit outline", Theme.Icons.Edit),
+                Section("Detection"), _autoThreshold, thrRow, blurRow,
+                Section("Editing"), _softDrag, _loupe);
+            panel.Controls.Add(_outlineCard);
 
-            panel.Controls.Add(Group("3. Result",
-                new Label { Text = "Equivalent diameter", AutoSize = true },
-                _eqd, _details,
-                Btn("Copy results", (_, _) => CopyResults()),
-                Btn("Save annotated image…", (_, _) => SaveAnnotated())));
+            var caption = new Label { Text = "Equivalent diameter", AutoSize = true, ForeColor = Theme.TextMuted, Font = Theme.UiFont, Margin = Padding.Empty };
+            _vertices.Margin = new Padding(0, 0, 0, 8);
+            _resultCard = new Card("Result", "3",
+                caption, _eqd, _area, _perimeter, _fourAP, _vertices, _resultNote,
+                Btn("Copy results", Theme.Icons.Copy, (_, _) => CopyResults(), primary: true),
+                Btn("Save annotated image…", Theme.Icons.Save, (_, _) => SaveAnnotated()));
+            panel.Controls.Add(_resultCard);
 
             panel.Controls.Add(_help);
             return panel;
@@ -307,12 +403,17 @@ namespace CutoutEqD.App
 
         private void UpdateScaleInfo()
         {
+            bool set = _mmPerPixel is double && _canvas.ScaleA is Pt && _canvas.ScaleB is Pt;
             if (_mmPerPixel is double s && _canvas.ScaleA is Pt a && _canvas.ScaleB is Pt b)
-                _scaleInfo.Text = $"{_knownDistanceMm:0.##} mm over {Pt.Distance(a, b):F1} px\n" +
-                                  $"= {1 / s:F3} px/mm  ({25.4 / s:F0} dpi)\n" +
-                                  "Drag the magenta end-marks (in Set scale mode) to refine.";
+            {
+                _scaleRef.Value = $"{_knownDistanceMm:0.##} mm over {Pt.Distance(a, b):F1} px";
+                _scaleRes.Value = $"{1 / s:F3} px/mm  ·  {25.4 / s:F0} dpi";
+                _scaleHint.Text = "Drag the magenta end-marks (in Set scale mode) to refine.";
+            }
             else
-                _scaleInfo.Text = "Not set. Click two well-separated ticks on the ruler (e.g. 0 and 100 mm), zooming in for accuracy.";
+                _scaleHint.Text = "Not set. Click two well-separated ticks on the ruler (e.g. 0 and 100 mm), zooming in for accuracy.";
+            _scaleRef.Visible = _scaleRes.Visible = set;
+            _scaleCard.Completed = set;
         }
 
         // ---------------- Detection ----------------
@@ -384,28 +485,33 @@ namespace CutoutEqD.App
         private void UpdateResults()
         {
             var o = _canvas.Outline;
+            bool hasOutline = o != null && o.Count >= 3;
+            _outlineCard.Completed = hasOutline;
+            _resultCard.Completed = hasOutline && _mmPerPixel != null;
             if (o == null || o.Count < 3)
             {
                 _eqd.Text = "—";
-                _details.Text = "No outline yet.";
+                _area.Value = _perimeter.Value = _fourAP.Value = _vertices.Value = "—";
+                _resultNote.Text = "No outline yet.";
                 return;
             }
             double areaPx = Polygon.Area(o);
+            _vertices.Value = o.Count.ToString(CultureInfo.CurrentCulture);
             if (_mmPerPixel is double s)
             {
                 var m = FieldMetrics.From(o, s);
                 _eqd.Text = $"{m.EquivalentDiameterCm:F2} cm";
-                _details.Text =
-                    $"Area: {m.AreaCm2:F2} cm²\n" +
-                    $"Perimeter: {m.PerimeterCm:F2} cm\n" +
-                    $"4A/P: {m.FourAOverPCm:F2} cm\n" +
-                    $"Vertices: {o.Count}\n\n" +
-                    "EqD = 2√(A/π): diameter of the circle with the same area as the outline.";
+                _area.Value = $"{m.AreaCm2:F2} cm²";
+                _perimeter.Value = $"{m.PerimeterCm:F2} cm";
+                _fourAP.Value = $"{m.FourAOverPCm:F2} cm";
+                _resultNote.Text = "EqD = 2√(A/π): diameter of the circle with the same area as the outline.";
             }
             else
             {
-                _eqd.Text = "set scale";
-                _details.Text = $"Area: {areaPx:F0} px²\nVertices: {o.Count}\n\nSet the scale on the ruler to get cm.";
+                _eqd.Text = "—";
+                _area.Value = $"{areaPx:F0} px²";
+                _perimeter.Value = _fourAP.Value = "—";
+                _resultNote.Text = "Set the scale on the ruler to get cm.";
             }
         }
 
@@ -468,19 +574,27 @@ namespace CutoutEqD.App
 
         private void UpdateModeUi()
         {
-            foreach (var kv in _modeButtons) kv.Value.Checked = kv.Key == _canvas.Mode;
-            _help.Text = _canvas.Mode switch
+            foreach (var kv in _modeButtons)
             {
-                CanvasMode.Scale => "SET SCALE: click a tick on the ruler, then a second tick far away. Enter the distance in mm. " +
-                                     "Zoom with the mouse wheel; the magnifier shows the exact pixel. Drag an end-mark to refine.",
-                CanvasMode.Detect => "AUTO-DETECT: click anywhere inside the light aperture. The edge is placed at the 50% grey level " +
-                                     "between aperture and cutout (or at the manual threshold).",
-                CanvasMode.Draw => "DRAW: click around the edge. Right-click/Backspace removes the last point. " +
-                                   "Click the first point, double-click or press Enter to close. Esc cancels.",
-                CanvasMode.Edit => "EDIT: drag a vertex to move it; click on an edge to add a vertex; right-click or Delete removes one. " +
-                                   "Arrow keys nudge the highlighted vertex (Shift = 1 px). Ctrl+Z undoes.",
-                _ => "PAN: drag to move the image. Mouse wheel zooms. Middle-drag or Space+drag pans in any mode."
+                bool active = kv.Key == _canvas.Mode;
+                kv.Value.Checked = active;
+                var (normal, activeIcon) = _modeIcons[kv.Key];
+                kv.Value.Image = active ? activeIcon : normal;
+            }
+            foreach (var kv in _sideModeButtons) kv.Value.Selected = kv.Key == _canvas.Mode;
+            var (heading, body) = _canvas.Mode switch
+            {
+                CanvasMode.Scale => ("Set scale", "Click a tick on the ruler, then a second tick far away. Enter the distance in mm. " +
+                                     "Zoom with the mouse wheel; the magnifier shows the exact pixel. Drag an end-mark to refine."),
+                CanvasMode.Detect => ("Auto-detect", "Click anywhere inside the light aperture. The edge is placed at the 50% grey level " +
+                                      "between aperture and cutout (or at the manual threshold)."),
+                CanvasMode.Draw => ("Draw outline", "Click around the edge. Right-click/Backspace removes the last point. " +
+                                    "Click the first point, double-click or press Enter to close. Esc cancels."),
+                CanvasMode.Edit => ("Edit outline", "Drag a vertex to move it; click on an edge to add a vertex; right-click or Delete removes one. " +
+                                    "Arrow keys nudge the highlighted vertex (Shift = 1 px). Ctrl+Z undoes."),
+                _ => ("Pan", "Drag to move the image. Mouse wheel zooms. Middle-drag or Space+drag pans in any mode.")
             };
+            _help.SetContent(heading, body);
         }
 
         private void UpdateMousePos(Pt? p)
@@ -506,20 +620,26 @@ namespace CutoutEqD.App
             {
                 Text = title, FormBorderStyle = FormBorderStyle.FixedDialog, StartPosition = FormStartPosition.CenterParent,
                 MinimizeBox = false, MaximizeBox = false, ShowInTaskbar = false, AutoSize = true,
-                AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(12)
+                AutoSizeMode = AutoSizeMode.GrowAndShrink, Padding = new Padding(20, 16, 20, 16),
+                AutoScaleDimensions = new SizeF(96F, 96F), AutoScaleMode = AutoScaleMode.Dpi,
+                Font = Theme.UiFont, BackColor = Theme.Surface, ForeColor = Theme.Text
             };
-            var flow = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, Dock = DockStyle.Fill };
-            var label = new Label { Text = prompt, AutoSize = true };
+            var flow = new FlowLayoutPanel { FlowDirection = FlowDirection.TopDown, AutoSize = true, Dock = DockStyle.Fill, WrapContents = false };
+            var label = new Label { Text = prompt, AutoSize = true, Margin = new Padding(0, 0, 0, 8) };
             var num = new NumericUpDown
             {
                 Minimum = (decimal)min, Maximum = (decimal)max, DecimalPlaces = 2, Increment = 1,
-                Value = (decimal)Math.Max(min, Math.Min(max, value)), Width = 120
+                Value = (decimal)Math.Max(min, Math.Min(max, value)), Width = 140, BorderStyle = BorderStyle.FixedSingle,
+                Font = Theme.InputFont, Margin = new Padding(0, 0, 6, 0)
             };
-            var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, AutoSize = true };
-            var ok = new Button { Text = "OK", DialogResult = DialogResult.OK };
-            var cancel = new Button { Text = "Cancel", DialogResult = DialogResult.Cancel };
+            var unit = new Label { Text = "mm", AutoSize = true, ForeColor = Theme.TextMuted, Padding = new Padding(0, 6, 0, 0) };
+            var input = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, AutoSize = true, WrapContents = false, Margin = new Padding(0, 0, 0, 16) };
+            input.Controls.Add(num); input.Controls.Add(unit);
+            var buttons = new FlowLayoutPanel { FlowDirection = FlowDirection.LeftToRight, AutoSize = true, WrapContents = false, Margin = Padding.Empty };
+            var ok = new ModernButton("OK", primary: true) { DialogResult = DialogResult.OK, Width = 96, Margin = new Padding(0, 0, 8, 0) };
+            var cancel = new ModernButton("Cancel") { DialogResult = DialogResult.Cancel, Width = 96, Margin = Padding.Empty };
             buttons.Controls.Add(ok); buttons.Controls.Add(cancel);
-            flow.Controls.Add(label); flow.Controls.Add(num); flow.Controls.Add(buttons);
+            flow.Controls.Add(label); flow.Controls.Add(input); flow.Controls.Add(buttons);
             f.Controls.Add(flow);
             f.AcceptButton = ok; f.CancelButton = cancel;
             f.Shown += (_, _) => { num.Select(0, num.Text.Length); num.Focus(); };

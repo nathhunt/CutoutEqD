@@ -56,7 +56,7 @@ namespace CutoutEqD.App
         {
             SetStyle(ControlStyles.AllPaintingInWmPaint | ControlStyles.OptimizedDoubleBuffer |
                      ControlStyles.UserPaint | ControlStyles.ResizeRedraw | ControlStyles.Selectable, true);
-            BackColor = Color.FromArgb(40, 42, 46);
+            BackColor = Theme.CanvasBack;
             Cursor = Cursors.Cross;
             TabStop = true;
         }
@@ -99,6 +99,14 @@ namespace CutoutEqD.App
         public bool SoftDrag { get; set; }
         public double SoftDragRadiusScreen { get; set; } = 40;   // screen px → converted at drag time
         public double Zoom => _zoom;
+
+        /// <summary>Highlights the empty-state drop zone while a file is dragged over the window.</summary>
+        public bool DropHighlight
+        {
+            get => _dropHighlight;
+            set { if (_dropHighlight != value) { _dropHighlight = value; Invalidate(); } }
+        }
+        private bool _dropHighlight;
         public bool CanUndo => _undo.Count > 0;
         public bool CanRedo => _redo.Count > 0;
 
@@ -465,9 +473,7 @@ namespace CutoutEqD.App
             g.Clear(BackColor);
             if (_image == null)
             {
-                using var f = new Font(Font.FontFamily, 12f);
-                TextRenderer.DrawText(g, "Open a scanned image (Ctrl+O), paste one (Ctrl+V) or drag a file here.",
-                    f, ClientRectangle, Color.Gainsboro, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.WordBreak);
+                DrawEmptyState(g);
                 return;
             }
 
@@ -481,6 +487,56 @@ namespace CutoutEqD.App
 
             if (ShowLoupe && _mouseInside && !_panning && (_mode == CanvasMode.Scale || _mode == CanvasMode.Draw || _mode == CanvasMode.Edit))
                 DrawLoupe(g);
+        }
+
+        /// <summary>Dashed drop zone with an icon and short instructions, shown before an image is loaded.</summary>
+        private void DrawEmptyState(Graphics g)
+        {
+            float s = DeviceDpi / 96f;
+            var zone = new RectangleF(0, 0, Math.Min(Width - 48 * s, 520 * s), Math.Min(Height - 48 * s, 280 * s));
+            if (zone.Width < 120 * s || zone.Height < 120 * s)
+            {
+                TextRenderer.DrawText(g, "Open (Ctrl+O), paste (Ctrl+V) or drop a scan here.", Theme.UiFont, ClientRectangle,
+                    Color.Gainsboro, TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter | TextFormatFlags.WordBreak);
+                return;
+            }
+            zone.X = (Width - zone.Width) / 2;
+            zone.Y = (Height - zone.Height) / 2;
+
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            using (var path = Theme.RoundedRect(zone, 12 * s))
+            {
+                using var fill = new SolidBrush(_dropHighlight ? Color.FromArgb(36, Theme.AccentOnDark) : Color.FromArgb(10, 255, 255, 255));
+                g.FillPath(fill, path);
+                using var pen = new Pen(_dropHighlight ? Theme.AccentOnDark : Color.FromArgb(80, 255, 255, 255), 1.5f * s) { DashStyle = DashStyle.Dash };
+                g.DrawPath(pen, path);
+            }
+            g.SmoothingMode = SmoothingMode.Default;
+
+            const string title = "Drop a scanned image here";
+            const string sub = "or press Ctrl+O to open a file, Ctrl+V to paste a screenshot";
+            const string tip = "Include a ruler lying in the same plane as the cutout.";
+            var flags = TextFormatFlags.HorizontalCenter | TextFormatFlags.WordBreak | TextFormatFlags.NoPadding;
+            int w = (int)(zone.Width - 40 * s);
+            int iconH = Theme.LargeIconFont != null ? TextRenderer.MeasureText(Theme.Icons.Photo, Theme.LargeIconFont).Height : 0;
+            int titleH = TextRenderer.MeasureText(title, Theme.EmptyTitleFont, new Size(w, 0), flags).Height;
+            int subH = TextRenderer.MeasureText(sub, Theme.UiFont, new Size(w, 0), flags).Height;
+            int tipH = TextRenderer.MeasureText(tip, Theme.SmallFont, new Size(w, 0), flags).Height;
+            int gap = (int)(10 * s);
+            int total = iconH + (iconH > 0 ? gap : 0) + titleH + gap / 2 + subH + 2 * gap + tipH;
+            int x = (int)(zone.X + 20 * s), y = (int)(zone.Y + (zone.Height - total) / 2);
+
+            if (Theme.LargeIconFont != null)
+            {
+                TextRenderer.DrawText(g, Theme.Icons.Photo, Theme.LargeIconFont, new Rectangle(x, y, w, iconH),
+                    _dropHighlight ? Theme.AccentOnDark : Color.FromArgb(170, 170, 170), flags);
+                y += iconH + gap;
+            }
+            TextRenderer.DrawText(g, title, Theme.EmptyTitleFont, new Rectangle(x, y, w, titleH), Color.FromArgb(235, 235, 235), flags);
+            y += titleH + gap / 2;
+            TextRenderer.DrawText(g, sub, Theme.UiFont, new Rectangle(x, y, w, subH), Color.FromArgb(185, 185, 185), flags);
+            y += subH + 2 * gap;
+            TextRenderer.DrawText(g, tip, Theme.SmallFont, new Rectangle(x, y, w, tipH), Color.FromArgb(140, 140, 140), flags);
         }
 
         /// <summary>Draws outline, scale line and in-progress geometry using the supplied transform.
@@ -497,10 +553,11 @@ namespace CutoutEqD.App
                 {
                     for (int i = 0; i < pts.Length; i++)
                     {
-                        float r = i == _hoverVertex ? 5f : 3f;
+                        float r = i == _hoverVertex ? 5.5f : 3.5f;
                         using var vb = new SolidBrush(i == _hoverVertex ? Color.OrangeRed : Color.White);
-                        g.FillRectangle(vb, pts[i].X - r, pts[i].Y - r, 2 * r, 2 * r);
-                        g.DrawRectangle(Pens.Black, pts[i].X - r, pts[i].Y - r, 2 * r, 2 * r);
+                        g.FillEllipse(vb, pts[i].X - r, pts[i].Y - r, 2 * r, 2 * r);
+                        using var vp = new Pen(Color.FromArgb(200, 0, 0, 0), 1.25f);
+                        g.DrawEllipse(vp, pts[i].X - r, pts[i].Y - r, 2 * r, 2 * r);
                     }
                 }
             }
@@ -547,8 +604,11 @@ namespace CutoutEqD.App
                 using var f = new Font(SystemFonts.DefaultFont.FontFamily, 9f * lineScale, FontStyle.Bold);
                 var mid = new PointF((a.X + b.X) / 2, (a.Y + b.Y) / 2 - 18 * lineScale);
                 var sz = g.MeasureString(label, f);
-                using var bg = new SolidBrush(Color.FromArgb(200, 0, 0, 0));
-                g.FillRectangle(bg, mid.X - sz.Width / 2 - 2, mid.Y, sz.Width + 4, sz.Height);
+                var pill = new RectangleF(mid.X - sz.Width / 2 - 5 * lineScale, mid.Y - 1 * lineScale, sz.Width + 10 * lineScale, sz.Height + 2 * lineScale);
+                var oldMode = g.SmoothingMode;
+                g.SmoothingMode = SmoothingMode.AntiAlias;
+                Theme.FillRounded(g, pill, pill.Height / 2, Color.FromArgb(210, 20, 20, 20));
+                g.SmoothingMode = oldMode;
                 using var tb = new SolidBrush(Color.Magenta);
                 g.DrawString(label, f, tb, mid.X - sz.Width / 2, mid.Y);
             }
@@ -567,8 +627,14 @@ namespace CutoutEqD.App
             double half = size / 2.0 / loupeZoom;
             var src = new RectangleF((float)(c.X - half), (float)(c.Y - half), (float)(2 * half), (float)(2 * half));
 
+            // Soft shadow, then clip everything to a rounded square.
+            using var frame = Theme.RoundedRect(rect, 10);
+            using (var shadow = Theme.RoundedRect(new RectangleF(rect.X + 2, rect.Y + 3, rect.Width, rect.Height), 10))
+            using (var sb = new SolidBrush(Color.FromArgb(90, 0, 0, 0)))
+                g.FillPath(sb, shadow);
+
             var state = g.Save();
-            g.SetClip(rect);
+            g.SetClip(frame);
             g.Clear(Color.Black);
             g.InterpolationMode = InterpolationMode.NearestNeighbor;
             g.PixelOffsetMode = PixelOffsetMode.Half;
@@ -597,7 +663,8 @@ namespace CutoutEqD.App
                 g.DrawLine(cross, cx, rect.Y, cx, cy - 4); g.DrawLine(cross, cx, cy + 4, cx, rect.Bottom);
             }
             g.Restore(state);
-            g.DrawRectangle(Pens.White, rect);
+            using var border = new Pen(Color.FromArgb(220, 255, 255, 255), 1.5f);
+            g.DrawPath(border, frame);
         }
 
         protected override void OnResize(EventArgs e)
