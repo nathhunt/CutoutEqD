@@ -24,6 +24,10 @@ You can also pass an image path on the command line: `CutoutEqD.exe scan.png`.
 ## Using it
 
 1. **Load the image.** Use *Open…* (Ctrl+O), *Paste* (Ctrl+V, handy for screenshots), or drag a file onto the window.
+   - *Rotate left / right* (Shift+R / R) turns it by 90°.
+   - *Crop* (C): drag a box around the cutout and ruler, then press Enter or double-click inside it. Esc cancels.
+   - The outline and scale line move with the image, so you can rotate or crop at any point. Rotation and cropping don't change
+     the image's pixel spacing, so the scale stays valid. *Reset to original* undoes all rotations and crops.
 2. **Set the scale** (S). Click one ruler tick, then another tick far from it, e.g. 100 mm and 300 mm.
    Enter the distance between them in mm. Zoom with the mouse wheel; the magnifier in the corner shows exactly which pixel you are on.
    Drag either magenta end-mark afterwards to refine it.
@@ -35,7 +39,9 @@ You can also pass an image path on the command line: `CutoutEqD.exe scan.png`.
      Click the first point, double-click or press Enter to close.
    - *Threshold*: untick *Automatic threshold* and move the slider. The outline re-detects live, unless you've hand-edited it.
    - Ctrl+Z / Ctrl+Y undo and redo outline changes.
-5. **Results:** *Copy results* (Ctrl+C) copies a text summary. *Save annotated image…* (Ctrl+S) writes a PNG with the outline, scale line and numbers for the record.
+5. **Results:** *Copy results* (Ctrl+C) copies a text summary. *Save PDF report…* (Ctrl+S) writes a one-page A4 PDF for the record:
+   the equivalent diameter, area, perimeter, 4A/P, scale and edge-threshold settings, and the (rotated/cropped) image with the outline
+   and scale line drawn on it.
 
 Panning: middle-drag, Space+drag, or *Pan* mode (H). *Fit* (F) re-centres the image.
 

@@ -113,7 +113,57 @@ double RelErr(double a, double b) => Math.Abs(a - b) / b;
     Check("nearest edge", e == 0 && Math.Abs(proj.Y) < 1e-9);
 }
 
-// 6. Real scan supplied by the user (PGM converted from the PNG), if present.
+// 6. Rotate / crop transforms carry geometry with the image and undo exactly
+{
+    bool Near(Pt a, Pt b) => Pt.Distance(a, b) < 1e-9;
+    int w = 40, h = 30;
+    // Pixel centre (i, j) → (h−1−j, i) + 0.5 for a clockwise turn; → (j, w−1−i) + 0.5 counter-clockwise.
+    var cw = ImageTransform.RotateClockwise(w, h);
+    var ccw = ImageTransform.RotateCounterClockwise(w, h);
+    Check("rotate CW maps pixel centres", Near(cw.Apply(new Pt(3.5, 7.5)), new Pt(h - 1 - 7 + 0.5, 3.5)));
+    Check("rotate CCW maps pixel centres", Near(ccw.Apply(new Pt(3.5, 7.5)), new Pt(7.5, w - 1 - 3 + 0.5)));
+    Check("CW then CCW is identity", cw.Then(ImageTransform.RotateCounterClockwise(h, w)).IsIdentity);
+    var four = cw.Then(ImageTransform.RotateClockwise(h, w)).Then(ImageTransform.RotateClockwise(w, h)).Then(ImageTransform.RotateClockwise(h, w));
+    Check("four CW turns are identity", four.IsIdentity);
+
+    var chain = cw.Then(ImageTransform.Crop(5, 2)).Then(ImageTransform.RotateCounterClockwise(h - 5, w - 2));
+    var sq = new List<Pt> { new(10, 10), new(20, 10), new(20, 18), new(10, 18) };
+    var moved = sq.ConvertAll(chain.Apply);
+    Check("rotate + crop keeps area", Math.Abs(Polygon.Area(moved) - Polygon.Area(sq)) < 1e-9);
+    Check("inverse restores points", sq.TrueForAll(p => Near(chain.Inverse().Apply(chain.Apply(p)), p)));
+}
+
+// 7. One-page PDF report: valid structure and byte-exact cross-reference table
+{
+    var circle = new List<Pt>();
+    for (int i = 0; i < 64; i++) { double t = 2 * Math.PI * i / 64; circle.Add(new Pt(200 + 100 * Math.Cos(t), 150 + 100 * Math.Sin(t))); }
+    var pdf = ReportBuilder.Build(new ReportData
+    {
+        ImageName = "scan (test).png", AppVersion = "1.0.0", Jpeg = new byte[] { 0xFF, 0xD8, 0xFF, 0xD9 },
+        JpegWidth = 400, JpegHeight = 300, ImageWidth = 400, ImageHeight = 300, Outline = circle,
+        ScaleA = new Pt(20, 280), ScaleB = new Pt(380, 280), KnownDistanceMm = 100, MmPerPixel = 100 / 360.0,
+        ThresholdDescription = "Automatic (50%), 147",
+    });
+    string text = System.Text.Encoding.GetEncoding("ISO-8859-1").GetString(pdf);
+    Check("PDF header and trailer", text.StartsWith("%PDF-1.4") && text.TrimEnd().EndsWith("%%EOF"));
+    int sx = text.LastIndexOf("startxref", StringComparison.Ordinal);
+    long xref = long.Parse(text.Substring(sx + 10).Split('\n')[0]);
+    Check("startxref points at xref", text.Substring((int)xref, 4) == "xref");
+    var xlines = text.Substring((int)xref).Split('\n');
+    int count = int.Parse(xlines[1].Split(' ')[1]);
+    bool offsetsOk = true;
+    for (int i = 1; i < count; i++)
+    {
+        int off = int.Parse(xlines[2 + i].Substring(0, 10));
+        offsetsOk &= text.Substring(off).StartsWith($"{i} 0 obj");
+    }
+    Check("every xref offset points at its object", offsetsOk, $"{count - 1} objects");
+    Check("one page with image and fonts", text.Contains("/Count 1") && text.Contains("/DCTDecode") && text.Contains("/Helvetica-Bold"));
+    Check("EqD printed", text.Contains("(5.55 cm)"), "64-gon, r = 100 px at 0.2778 mm/px");
+    Check("parentheses escaped", text.Contains("scan \\(test\\).png"));
+}
+
+// 8. Real scan supplied by the user (PGM converted from the PNG), if present.
 string pgm = args.Length > 0 ? args[0] : "";
 if (File.Exists(pgm))
 {

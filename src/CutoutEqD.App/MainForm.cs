@@ -17,6 +17,8 @@ namespace CutoutEqD.App
 
         // Image data
         private string _imageName = "";
+        private Bitmap? _originalImage;                          // as loaded, for "Reset image"
+        private ImageTransform _transform = ImageTransform.Identity;   // original → current pixel coordinates
         private GrayImage? _gray;
         private GrayImage? _blurred;
         private double _blurredSigma = -1;
@@ -55,7 +57,8 @@ namespace CutoutEqD.App
         private readonly Dictionary<CanvasMode, ToolStripButton> _modeButtons = new();
         private readonly Dictionary<CanvasMode, (Image? normal, Image? active)> _modeIcons = new();
         private readonly Dictionary<CanvasMode, ModernButton> _sideModeButtons = new();
-        private ToolStripButton _undoButton = null!, _redoButton = null!;
+        private ToolStripButton _undoButton = null!, _redoButton = null!, _resetToolButton = null!;
+        private ModernButton _resetButton = null!;
 
         public MainForm()
         {
@@ -86,6 +89,7 @@ namespace CutoutEqD.App
             Controls.Add(status);
 
             _canvas.DetectRequested += (_, p) => RunDetection(p, userClick: true);
+            _canvas.CropRequested += (_, r) => CropImage(r);
             _canvas.OutlineChanged += (_, _) => OnOutlineChanged();
             _canvas.ScaleLineChanged += (_, _) => UpdateScaleFromLine();
             _canvas.ScaleLineCompleted += (_, _) => PromptForDistance();
@@ -125,6 +129,7 @@ namespace CutoutEqD.App
             UpdateModeUi();
             UpdateResults();
             UpdateScaleInfo();
+            UpdateResetButtons();
             _statusMsg.Text = "Open or paste a scanned image of the cutout with a ruler alongside.";
             ResumeLayout(false);
             PerformLayout();
@@ -183,6 +188,12 @@ namespace CutoutEqD.App
             tools.Items.Add(ToolButton("Open…", Theme.Icons.Open, "Open image (Ctrl+O)", OpenImage));
             tools.Items.Add(ToolButton("Paste", Theme.Icons.Paste, "Paste image from clipboard (Ctrl+V)", PasteImage));
             tools.Items.Add(new ToolStripSeparator());
+            tools.Items.Add(ToolButton("Rotate left", Theme.Icons.RotateLeft, "Rotate 90° counter-clockwise (Shift+R)", () => RotateImage(clockwise: false), iconOnly: true));
+            tools.Items.Add(ToolButton("Rotate right", Theme.Icons.RotateRight, "Rotate 90° clockwise (R)", () => RotateImage(clockwise: true), iconOnly: true));
+            AddMode(tools, CanvasMode.Crop, "Crop", Theme.Icons.Crop, "C", "Drag a box around the area to keep, then press Enter");
+            _resetToolButton = ToolButton("Reset image", Theme.Icons.Reset, "Undo all rotations and crops", ResetImage, iconOnly: true);
+            tools.Items.Add(_resetToolButton);
+            tools.Items.Add(new ToolStripSeparator());
 
             AddMode(tools, CanvasMode.Scale, "Set scale", Theme.Icons.Ruler, "S", "Click two points on the ruler, then enter the distance between them");
             AddMode(tools, CanvasMode.Detect, "Auto-detect", Theme.Icons.Detect, "A", "Click inside the light aperture to find its edge");
@@ -240,6 +251,19 @@ namespace CutoutEqD.App
                 return b;
             }
 
+            const int half = (Card.ContentWidth - 6) / 2;
+            var rotateRow = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Margin = Padding.Empty };
+            var rotL = Btn("Rotate left", Theme.Icons.RotateLeft, (_, _) => RotateImage(clockwise: false));
+            var rotR = Btn("Rotate right", Theme.Icons.RotateRight, (_, _) => RotateImage(clockwise: true));
+            rotL.Width = rotR.Width = half;
+            rotL.Margin = new Padding(0, 0, 6, 6);
+            rotateRow.Controls.Add(rotL); rotateRow.Controls.Add(rotR);
+            _resetButton = Btn("Reset to original", Theme.Icons.Reset, (_, _) => ResetImage());
+            panel.Controls.Add(new Card("Image", null,
+                rotateRow,
+                ModeBtn(CanvasMode.Crop, "Crop…", Theme.Icons.Crop),
+                _resetButton));
+
             _scaleRef.Margin = new Padding(0, 0, 0, 0);
             _scaleRes.Margin = new Padding(0, 0, 0, 8);
             _scaleCard = new Card("Scale", "1",
@@ -270,7 +294,7 @@ namespace CutoutEqD.App
             _resultCard = new Card("Result", "3",
                 caption, _eqd, _area, _perimeter, _fourAP, _vertices, _resultNote,
                 Btn("Copy results", Theme.Icons.Copy, (_, _) => CopyResults(), primary: true),
-                Btn("Save annotated image…", Theme.Icons.Save, (_, _) => SaveAnnotated()));
+                Btn("Save PDF report…", Theme.Icons.Pdf, (_, _) => SaveReport()));
             panel.Controls.Add(_resultCard);
 
             panel.Controls.Add(_help);
@@ -288,7 +312,7 @@ namespace CutoutEqD.App
                 case Keys.Control | Keys.Z: _canvas.Undo(); return true;
                 case Keys.Control | Keys.Y: case Keys.Control | Keys.Shift | Keys.Z: _canvas.Redo(); return true;
                 case Keys.Control | Keys.C: CopyResults(); return true;
-                case Keys.Control | Keys.S: SaveAnnotated(); return true;
+                case Keys.Control | Keys.S: SaveReport(); return true;
             }
             if (_canvas.Focused && (keyData & (Keys.Control | Keys.Alt)) == 0)
             {
@@ -300,6 +324,8 @@ namespace CutoutEqD.App
                     case Keys.E: _canvas.Mode = CanvasMode.Edit; return true;
                     case Keys.H: _canvas.Mode = CanvasMode.Pan; return true;
                     case Keys.F: _canvas.ZoomToFit(); return true;
+                    case Keys.C: _canvas.Mode = CanvasMode.Crop; return true;
+                    case Keys.R: RotateImage(clockwise: (keyData & Keys.Shift) == 0); return true;
                 }
             }
             return base.ProcessCmdKey(ref msg, keyData);
@@ -358,6 +384,10 @@ namespace CutoutEqD.App
                 _mmPerPixel = null; _lastSeed = null; _outlineFromDetection = false;
                 _canvas.Image = bmp;
                 old?.Dispose();
+                _originalImage?.Dispose();
+                _originalImage = (Bitmap)bmp.Clone();
+                _transform = ImageTransform.Identity;
+                UpdateResetButtons();
                 Text = $"Cutout Equivalent Diameter — {name}";
                 _canvas.Mode = CanvasMode.Scale;
                 _statusMsg.Text = $"Loaded {bmp.Width}×{bmp.Height}. Step 1: click two points on the ruler.";
@@ -365,6 +395,70 @@ namespace CutoutEqD.App
             finally { Cursor = Cursors.Default; }
             UpdateScaleInfo(); UpdateResults();
         }
+
+        // ---------------- Rotate / crop ----------------
+
+        private void RotateImage(bool clockwise)
+        {
+            if (_canvas.Image is not Bitmap img) return;
+            var rotated = (Bitmap)img.Clone();
+            rotated.RotateFlip(clockwise ? RotateFlipType.Rotate90FlipNone : RotateFlipType.Rotate270FlipNone);
+            ApplyImageChange(rotated, clockwise ? ImageTransform.RotateClockwise(img.Width, img.Height)
+                                                : ImageTransform.RotateCounterClockwise(img.Width, img.Height));
+            _statusMsg.Text = $"Rotated 90° {(clockwise ? "clockwise" : "counter-clockwise")}. The outline and scale line moved with the image.";
+        }
+
+        private void CropImage(Rectangle r)
+        {
+            if (_canvas.Image is not Bitmap img) return;
+            r.Intersect(new Rectangle(0, 0, img.Width, img.Height));
+            if (r.Width < 4 || r.Height < 4) return;
+            var cropped = new Bitmap(r.Width, r.Height, PixelFormat.Format32bppArgb);
+            cropped.SetResolution(img.HorizontalResolution, img.VerticalResolution);
+            using (var g = Graphics.FromImage(cropped))
+                g.DrawImage(img, new Rectangle(0, 0, r.Width, r.Height), r, GraphicsUnit.Pixel);
+            ApplyImageChange(cropped, ImageTransform.Crop(r.X, r.Y));
+            _canvas.Mode = _mmPerPixel == null ? CanvasMode.Scale : CanvasMode.Detect;
+            _statusMsg.Text = $"Cropped to {r.Width}×{r.Height} px. " +
+                              (_mmPerPixel == null ? "Next: set the scale on the ruler." : "The scale is unchanged.");
+        }
+
+        private void ResetImage()
+        {
+            if (_originalImage == null || _transform.IsIdentity) return;
+            ApplyImageChange((Bitmap)_originalImage.Clone(), _transform.Inverse());
+            _statusMsg.Text = "Back to the original image.";
+        }
+
+        /// <summary>Shows a rotated/cropped image and carries the outline, scale line and seed across.</summary>
+        private void ApplyImageChange(Bitmap bmp, ImageTransform t)
+        {
+            var old = _canvas.Image;
+            Cursor = Cursors.WaitCursor;
+            try
+            {
+                _gray = BitmapUtil.ToGray(bmp);
+                _blurred = null; _blurredSigma = -1;
+                if (_lastSeed is Pt seed)
+                {
+                    var p = t.Apply(seed);
+                    bool inside = p.X >= 0 && p.Y >= 0 && p.X < bmp.Width && p.Y < bmp.Height;
+                    _lastSeed = inside ? p : null;
+                }
+                bool fromDetection = _outlineFromDetection && _lastSeed != null;
+                _suppressOutlineEvent = true;
+                try { _canvas.ReplaceImage(bmp, t); }
+                finally { _suppressOutlineEvent = false; }
+                _outlineFromDetection = fromDetection;
+                old?.Dispose();
+                _transform = _transform.Then(t);
+                UpdateResetButtons();
+            }
+            finally { Cursor = Cursors.Default; }
+            UpdateScaleInfo(); UpdateResults();
+        }
+
+        private void UpdateResetButtons() => _resetButton.Enabled = _resetToolButton.Enabled = !_transform.IsIdentity;
 
         // ---------------- Scale ----------------
 
@@ -539,35 +633,55 @@ namespace CutoutEqD.App
             _statusMsg.Text = "Results copied to the clipboard.";
         }
 
-        private void SaveAnnotated()
+        private void SaveReport()
         {
             var img = _canvas.Image;
-            string text = ResultsText();
-            if (img == null || text.Length == 0) { _statusMsg.Text = "Set the scale and outline first."; return; }
+            var o = _canvas.Outline;
+            if (img == null || o == null || o.Count < 3 || _mmPerPixel is not double mm ||
+                _canvas.ScaleA is not Pt a || _canvas.ScaleB is not Pt b)
+            {
+                _statusMsg.Text = "Set the scale and outline first.";
+                return;
+            }
             using var dlg = new SaveFileDialog
             {
-                Title = "Save annotated image", Filter = "PNG image|*.png",
-                FileName = Path.GetFileNameWithoutExtension(_imageName) + "_EqD.png"
+                Title = "Save PDF report", Filter = "PDF document|*.pdf", DefaultExt = "pdf",
+                FileName = Path.GetFileNameWithoutExtension(_imageName) + "_EqD.pdf"
             };
             if (dlg.ShowDialog(this) != DialogResult.OK) return;
 
-            using var outBmp = new Bitmap(img.Width, img.Height, PixelFormat.Format32bppArgb);
-            outBmp.SetResolution(img.HorizontalResolution, img.VerticalResolution);
-            using (var g = Graphics.FromImage(outBmp))
+            Cursor = Cursors.WaitCursor;
+            try
             {
-                g.DrawImage(img, 0, 0, img.Width, img.Height);
-                g.SmoothingMode = SmoothingMode.AntiAlias;
-                float lineScale = Math.Max(1f, Math.Min(img.Width, img.Height) / 700f);
-                _canvas.DrawOverlays(g, p => new PointF((float)p.X, (float)p.Y), lineScale, false, false);
-
-                using var f = new Font(SystemFonts.DefaultFont.FontFamily, 10f * lineScale);
-                var sz = g.MeasureString(text, f);
-                using var bg = new SolidBrush(Color.FromArgb(215, 255, 255, 255));
-                g.FillRectangle(bg, 8, 8, sz.Width + 8, sz.Height + 8);
-                g.DrawString(text, f, Brushes.Black, 12, 12);
+                var jpeg = BitmapUtil.ToJpeg(img, 3000, out int jw, out int jh);
+                var version = typeof(MainForm).Assembly.GetName().Version;
+                var pdf = ReportBuilder.Build(new ReportData
+                {
+                    ImageName = _imageName,
+                    Date = DateTime.Now,
+                    AppVersion = version == null ? "" : version.ToString(3),
+                    Jpeg = jpeg, JpegWidth = jw, JpegHeight = jh,
+                    ImageWidth = img.Width, ImageHeight = img.Height,
+                    Outline = new List<Pt>(o),
+                    ScaleA = a, ScaleB = b,
+                    KnownDistanceMm = _knownDistanceMm, MmPerPixel = mm,
+                    ThresholdDescription = ThresholdDescription(),
+                });
+                File.WriteAllBytes(dlg.FileName, pdf);
+                _statusMsg.Text = "Saved " + dlg.FileName;
             }
-            outBmp.Save(dlg.FileName, ImageFormat.Png);
-            _statusMsg.Text = "Saved " + dlg.FileName;
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Could not save the report:\n" + ex.Message, Text, MessageBoxButtons.OK, MessageBoxIcon.Warning);
+            }
+            finally { Cursor = Cursors.Default; }
+        }
+
+        private string ThresholdDescription()
+        {
+            if (!_outlineFromDetection) return "Outline drawn or edited by hand";
+            string how = _autoThreshold.Checked ? "Automatic (50% level)" : "Manual";
+            return $"{how}: {_threshold.Value} grey levels, smoothing {_blur.Value:0.0} px";
         }
 
         // ---------------- Misc UI ----------------
@@ -592,6 +706,8 @@ namespace CutoutEqD.App
                                     "Click the first point, double-click or press Enter to close. Esc cancels."),
                 CanvasMode.Edit => ("Edit outline", "Drag a vertex to move it; click on an edge to add a vertex; right-click or Delete removes one. " +
                                     "Arrow keys nudge the highlighted vertex (Shift = 1 px). Ctrl+Z undoes."),
+                CanvasMode.Crop => ("Crop", "Drag a box around the cutout and ruler. Press Enter or double-click inside the box to crop; " +
+                                    "Esc cancels. The outline and scale line are kept. Reset to original undoes all crops and rotations."),
                 _ => ("Pan", "Drag to move the image. Mouse wheel zooms. Middle-drag or Space+drag pans in any mode.")
             };
             _help.SetContent(heading, body);

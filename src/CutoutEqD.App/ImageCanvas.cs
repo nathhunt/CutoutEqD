@@ -7,11 +7,11 @@ using CutoutEqD.Core;
 
 namespace CutoutEqD.App
 {
-    public enum CanvasMode { Pan, Scale, Detect, Draw, Edit }
+    public enum CanvasMode { Pan, Scale, Detect, Draw, Edit, Crop }
 
     /// <summary>
     /// Zoomable/pannable image view that handles the interactive parts: setting the scale line,
-    /// clicking to auto-detect, drawing an outline vertex by vertex, and editing an outline.
+    /// clicking to auto-detect, drawing an outline vertex by vertex, editing an outline, and choosing a crop.
     /// All geometry is kept in image-pixel coordinates (pixel (i,j) covers [i,i+1)×[j,j+1)).
     /// </summary>
     public sealed class ImageCanvas : Control
@@ -29,6 +29,10 @@ namespace CutoutEqD.App
         private Pt? _scaleA, _scaleB;
         private Pt? _pendingScaleA;
         private Pt? _seed;
+        private Rectangle? _crop;              // image pixels
+        private Point? _cropStart;
+        private Point _cropDownScreen;
+        private bool _cropDragged;              // a plain click keeps the current box (so double-click can confirm it)
 
         // Interaction state
         private bool _panning;
@@ -51,6 +55,8 @@ namespace CutoutEqD.App
         public event EventHandler<Pt?>? MouseImagePositionChanged;
         public event EventHandler<string>? StatusMessage;
         public event EventHandler? ModeChanged;
+        /// <summary>Raised when the user confirms the crop rectangle (Enter or double-click inside it).</summary>
+        public event EventHandler<Rectangle>? CropRequested;
 
         public ImageCanvas()
         {
@@ -70,7 +76,7 @@ namespace CutoutEqD.App
             {
                 _image = value;
                 _outline = null; _drawing.Clear(); _undo.Clear(); _redo.Clear();
-                _scaleA = _scaleB = _pendingScaleA = null; _seed = null;
+                _scaleA = _scaleB = _pendingScaleA = null; _seed = null; _crop = null; _cropStart = null;
                 ZoomToFit();
                 OutlineChanged?.Invoke(this, EventArgs.Empty);
                 ScaleLineChanged?.Invoke(this, EventArgs.Empty);
@@ -85,6 +91,7 @@ namespace CutoutEqD.App
                 if (_mode == value) return;
                 _mode = value;
                 _drawing.Clear(); _pendingScaleA = null; _dragVertex = -1; _dragScaleEnd = 0;
+                _crop = null; _cropStart = null;
                 Cursor = value == CanvasMode.Pan ? Cursors.Hand : Cursors.Cross;
                 ModeChanged?.Invoke(this, EventArgs.Empty);
                 Invalidate();
@@ -109,6 +116,31 @@ namespace CutoutEqD.App
         private bool _dropHighlight;
         public bool CanUndo => _undo.Count > 0;
         public bool CanRedo => _redo.Count > 0;
+        public Rectangle? CropRect => _crop;
+
+        /// <summary>
+        /// Swaps in a rotated or cropped version of the image and moves every piece of geometry
+        /// (outline, undo history, scale line, seed) with it, so no work is lost.
+        /// </summary>
+        public void ReplaceImage(Bitmap image, ImageTransform t)
+        {
+            _image = image;
+            List<Pt>? Map(List<Pt>? p) => p?.ConvertAll(t.Apply);
+            _outline = Map(_outline);
+            for (int i = 0; i < _drawing.Count; i++) _drawing[i] = t.Apply(_drawing[i]);
+            var undo = _undo.ToArray(); _undo.Clear();
+            for (int i = undo.Length - 1; i >= 0; i--) _undo.Push(Map(undo[i]));
+            var redo = _redo.ToArray(); _redo.Clear();
+            for (int i = redo.Length - 1; i >= 0; i--) _redo.Push(Map(redo[i]));
+            if (_scaleA is Pt a) _scaleA = t.Apply(a);
+            if (_scaleB is Pt b) _scaleB = t.Apply(b);
+            if (_pendingScaleA is Pt pa) _pendingScaleA = t.Apply(pa);
+            if (_seed is Pt sd) _seed = t.Apply(sd);
+            _crop = null; _cropStart = null; _dragVertex = -1; _hoverVertex = -1; _dragScaleEnd = 0;
+            ZoomToFit();
+            OutlineChanged?.Invoke(this, EventArgs.Empty);
+            ScaleLineChanged?.Invoke(this, EventArgs.Empty);
+        }
 
         /// <summary>Replace the outline (e.g. from auto-detection). Undoable.</summary>
         public void SetOutline(List<Pt>? outline, Pt? seed = null)
@@ -212,6 +244,10 @@ namespace CutoutEqD.App
                     break;
                 case CanvasMode.Draw: DrawMouseDown(e, ip); break;
                 case CanvasMode.Edit: EditMouseDown(e, ip); break;
+                case CanvasMode.Crop:
+                    if (e.Button == MouseButtons.Left) { _cropStart = ClampToImage(ip); _cropDownScreen = e.Location; _cropDragged = false; }
+                    else if (e.Button == MouseButtons.Right) _crop = null;
+                    break;
             }
             Invalidate();
         }
@@ -232,7 +268,14 @@ namespace CutoutEqD.App
                 return;
             }
 
-            if (_dragScaleEnd != 0)
+            if (_cropStart is Point cs && e.Button == MouseButtons.Left)
+            {
+                if (!_cropDragged && Math.Abs(e.X - _cropDownScreen.X) + Math.Abs(e.Y - _cropDownScreen.Y) < 4) return;
+                _cropDragged = true;
+                Point c = ClampToImage(ip);
+                _crop = Rectangle.FromLTRB(Math.Min(cs.X, c.X), Math.Min(cs.Y, c.Y), Math.Max(cs.X, c.X), Math.Max(cs.Y, c.Y));
+            }
+            else if (_dragScaleEnd != 0)
             {
                 if (_dragScaleEnd == 1) _scaleA = ip; else _scaleB = ip;
                 ScaleLineChanged?.Invoke(this, EventArgs.Empty);
@@ -258,8 +301,19 @@ namespace CutoutEqD.App
                 Cursor = _mode == CanvasMode.Pan ? Cursors.Hand : Cursors.Cross;
             }
             _dragVertex = -1; _dragOriginal = null; _dragScaleEnd = 0;
+            if (_cropStart != null)
+            {
+                _cropStart = null;
+                if (_cropDragged && _crop is Rectangle r && (r.Width < 4 || r.Height < 4)) _crop = null;
+                if (_cropDragged && _crop != null) StatusMessage?.Invoke(this, "Press Enter or double-click inside the box to crop. Drag again to redraw it; Esc cancels.");
+            }
             Invalidate();
         }
+
+        /// <summary>Nearest pixel corner inside the image, so crops are whole pixels.</summary>
+        private Point ClampToImage(Pt p) => new(
+            Math.Max(0, Math.Min(_image!.Width, (int)Math.Round(p.X))),
+            Math.Max(0, Math.Min(_image!.Height, (int)Math.Round(p.Y))));
 
         protected override void OnMouseDoubleClick(MouseEventArgs e)
         {
@@ -269,6 +323,11 @@ namespace CutoutEqD.App
                 // The double-click's first click already added a point; drop the duplicate.
                 if (_drawing.Count >= 2 && Pt.Distance(_drawing[_drawing.Count - 1], _drawing[_drawing.Count - 2]) < HitImage) _drawing.RemoveAt(_drawing.Count - 1);
                 CloseDrawing();
+            }
+            else if (_mode == CanvasMode.Crop && e.Button == MouseButtons.Left && _crop is Rectangle r)
+            {
+                var ip = ToImage(e.Location);
+                if (ip.X >= r.Left && ip.X <= r.Right && ip.Y >= r.Top && ip.Y <= r.Bottom) CropRequested?.Invoke(this, r);
             }
         }
 
@@ -297,9 +356,12 @@ namespace CutoutEqD.App
             switch (e.KeyCode)
             {
                 case Keys.Space: _spaceDown = true; break;
-                case Keys.Enter: if (_mode == CanvasMode.Draw) CloseDrawing(); break;
+                case Keys.Enter:
+                    if (_mode == CanvasMode.Draw) CloseDrawing();
+                    else if (_mode == CanvasMode.Crop && _crop is Rectangle r) CropRequested?.Invoke(this, r);
+                    break;
                 case Keys.Escape:
-                    _drawing.Clear(); _pendingScaleA = null;
+                    _drawing.Clear(); _pendingScaleA = null; _crop = null; _cropStart = null;
                     Invalidate(); break;
                 case Keys.Back:
                     if (_mode == CanvasMode.Draw && _drawing.Count > 0) { _drawing.RemoveAt(_drawing.Count - 1); Invalidate(); }
@@ -484,8 +546,9 @@ namespace CutoutEqD.App
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.PixelOffsetMode = PixelOffsetMode.Default;
             DrawOverlays(g, ToScreen, 1f, _mode == CanvasMode.Edit, true);
+            if (_mode == CanvasMode.Crop && _crop is Rectangle crop) DrawCrop(g, crop);
 
-            if (ShowLoupe && _mouseInside && !_panning && (_mode == CanvasMode.Scale || _mode == CanvasMode.Draw || _mode == CanvasMode.Edit))
+            if (ShowLoupe && _mouseInside && !_panning && (_mode == CanvasMode.Scale || _mode == CanvasMode.Draw || _mode == CanvasMode.Edit || _mode == CanvasMode.Crop))
                 DrawLoupe(g);
         }
 
@@ -612,6 +675,40 @@ namespace CutoutEqD.App
                 using var tb = new SolidBrush(Color.Magenta);
                 g.DrawString(label, f, tb, mid.X - sz.Width / 2, mid.Y);
             }
+        }
+
+        /// <summary>Dims everything outside the crop box and labels its size.</summary>
+        private void DrawCrop(Graphics g, Rectangle crop)
+        {
+            var a = ToScreen(new Pt(crop.Left, crop.Top));
+            var b = ToScreen(new Pt(crop.Right, crop.Bottom));
+            var r = RectangleF.FromLTRB(a.X, a.Y, b.X, b.Y);
+            using (var outside = new Region(ClientRectangle))
+            {
+                outside.Exclude(r);
+                using var dim = new SolidBrush(Color.FromArgb(150, 0, 0, 0));
+                g.FillRegion(dim, outside);
+            }
+            using (var pen = new Pen(Color.White, 1.5f) { DashStyle = DashStyle.Dash })
+                g.DrawRectangle(pen, r.X, r.Y, r.Width, r.Height);
+            using (var thirds = new Pen(Color.FromArgb(90, 255, 255, 255), 1f))
+            {
+                for (int i = 1; i <= 2; i++)
+                {
+                    g.DrawLine(thirds, r.X + r.Width * i / 3, r.Y, r.X + r.Width * i / 3, r.Bottom);
+                    g.DrawLine(thirds, r.X, r.Y + r.Height * i / 3, r.Right, r.Y + r.Height * i / 3);
+                }
+            }
+            foreach (var c in new[] { new PointF(r.Left, r.Top), new PointF(r.Right, r.Top), new PointF(r.Left, r.Bottom), new PointF(r.Right, r.Bottom) })
+                g.FillRectangle(Brushes.White, c.X - 4, c.Y - 4, 8, 8);
+
+            string label = $"{crop.Width} × {crop.Height} px";
+            var sz = TextRenderer.MeasureText(label, Theme.UiFont);
+            var pill = new RectangleF(r.X, r.Bottom + 8, sz.Width + 12, sz.Height + 4);
+            if (pill.Bottom > Height) pill.Y = r.Bottom - pill.Height - 8;
+            Theme.FillRounded(g, pill, pill.Height / 2, Color.FromArgb(220, 20, 20, 20));
+            TextRenderer.DrawText(g, label, Theme.UiFont, Rectangle.Round(pill), Color.White,
+                TextFormatFlags.HorizontalCenter | TextFormatFlags.VerticalCenter);
         }
 
         /// <summary>Magnified view of the area under the cursor, for precise clicks on ruler ticks and edges.</summary>
