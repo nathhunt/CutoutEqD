@@ -142,7 +142,7 @@ double RelErr(double a, double b) => Math.Abs(a - b) / b;
         ImageName = "scan (test).png", AppVersion = "1.0.0", Jpeg = new byte[] { 0xFF, 0xD8, 0xFF, 0xD9 },
         JpegWidth = 400, JpegHeight = 300, ImageWidth = 400, ImageHeight = 300, Outline = circle,
         ScaleA = new Pt(20, 280), ScaleB = new Pt(380, 280), KnownDistanceMm = 100, MmPerPixel = 100 / 360.0,
-        ThresholdDescription = "147 grey levels (automatic, 50%)", SmoothingDescription = "1.0 px",
+        ThresholdDescription = "147 (automatic, 50%)", SmoothingDescription = "1.0 px",
     });
     string text = System.Text.Encoding.GetEncoding("ISO-8859-1").GetString(pdf);
     Check("PDF header and trailer", text.StartsWith("%PDF-1.4") && text.TrimEnd().EndsWith("%%EOF"));

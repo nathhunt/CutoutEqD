@@ -681,7 +681,7 @@ namespace CutoutEqD.App
         private string ThresholdDescription()
         {
             if (!_outlineFromDetection) return "n/a (outline drawn or edited)";
-            return $"{_threshold.Value} grey levels ({(_autoThreshold.Checked ? "automatic, 50%" : "manual")})";
+            return $"{_threshold.Value} ({(_autoThreshold.Checked ? "automatic, 50%" : "manual")})";
         }
 
         // ---------------- Misc UI ----------------
