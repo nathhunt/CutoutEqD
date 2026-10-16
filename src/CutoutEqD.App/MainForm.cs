@@ -666,6 +666,7 @@ namespace CutoutEqD.App
                     ScaleA = a, ScaleB = b,
                     KnownDistanceMm = _knownDistanceMm, MmPerPixel = mm,
                     ThresholdDescription = ThresholdDescription(),
+                    SmoothingDescription = _outlineFromDetection ? $"{_blur.Value:0.0} px" : "",
                 });
                 File.WriteAllBytes(dlg.FileName, pdf);
                 _statusMsg.Text = "Saved " + dlg.FileName;
@@ -679,9 +680,8 @@ namespace CutoutEqD.App
 
         private string ThresholdDescription()
         {
-            if (!_outlineFromDetection) return "Outline drawn or edited by hand";
-            string how = _autoThreshold.Checked ? "Automatic (50% level)" : "Manual";
-            return $"{how}: {_threshold.Value} grey levels, smoothing {_blur.Value:0.0} px";
+            if (!_outlineFromDetection) return "n/a (outline drawn or edited)";
+            return $"{_threshold.Value} grey levels ({(_autoThreshold.Checked ? "automatic, 50%" : "manual")})";
         }
 
         // ---------------- Misc UI ----------------

@@ -27,6 +27,7 @@ public sealed class ReportData
     public double KnownDistanceMm { get; set; }
     public double MmPerPixel { get; set; }
     public string ThresholdDescription { get; set; } = "";
+    public string SmoothingDescription { get; set; } = "";
 }
 
 /// <summary>Lays out the measurement record: header, results, the annotated image and a method note.</summary>
@@ -67,6 +68,7 @@ public static class ReportBuilder
             ("Scale", $"{1 / d.MmPerPixel:F3} px/mm  ({25.4 / d.MmPerPixel:F0} dpi)"),
             ("Scale reference", $"{d.KnownDistanceMm:0.##} mm over {Pt.Distance(d.ScaleA, d.ScaleB):F1} px"),
             ("Edge threshold", d.ThresholdDescription),
+            ("Noise smoothing", d.SmoothingDescription),
             ("Outline vertices", d.Outline.Count.ToString(CultureInfo.CurrentCulture)),
         };
         double tableLeft = left + width * 0.45, rowH = 17, ty = top + 4;
@@ -74,7 +76,10 @@ public static class ReportBuilder
         {
             if (string.IsNullOrEmpty(value)) continue;
             Color(pg, Muted).Text(tableLeft, ty - 11, PdfFont.Helvetica, 9, caption);
-            Color(pg, Ink).TextRight(right, ty - 11, PdfFont.Helvetica, 9, value);
+            // Shrink an unusually long value rather than let it run into its caption.
+            double room = right - tableLeft - PdfPage.TextWidth(PdfFont.Helvetica, 9, caption) - 12;
+            double size = Math.Max(6, Math.Min(9, 9 * room / Math.Max(1, PdfPage.TextWidth(PdfFont.Helvetica, 9, value))));
+            Color(pg, Ink).TextRight(right, ty - 11, PdfFont.Helvetica, size, value);
             ty -= rowH;
             Stroke(pg, Hairline).LineWidth(0.5).Line(tableLeft, ty, right, ty);
         }
