@@ -55,25 +55,30 @@ namespace CutoutEqD.App
         /// <summary>Segoe Fluent Icons / MDL2 code points (shared by both fonts).</summary>
         public static class Icons
         {
-            public const string Open = "";
-            public const string Paste = "";
-            public const string Ruler = "";
-            public const string Detect = "";     // lightning bolt
-            public const string Draw = "";       // inking pen
-            public const string Edit = "";
-            public const string Pan = "";        // move
-            public const string Undo = "";
-            public const string Redo = "";
-            public const string Clear = "";
-            public const string Fit = "";
-            public const string ZoomIn = "";
-            public const string ZoomOut = "";
-            public const string Copy = "";
-            public const string Save = "";
-            public const string Check = "";
-            public const string Info = "";
-            public const string Photo = "";
-            public const string Number = "";     // calculator
+            public const string Open = "\uE8E5";
+            public const string Paste = "\uE77F";
+            public const string Ruler = "\uED5E";
+            public const string Detect = "\uE945";     // lightning bolt
+            public const string Draw = "\uE76D";       // inking pen
+            public const string Edit = "\uE70F";
+            public const string Pan = "\uE7C2";        // move
+            public const string Undo = "\uE7A7";
+            public const string Redo = "\uE7A6";
+            public const string Clear = "\uE74D";
+            public const string Fit = "\uE740";
+            public const string ZoomIn = "\uE8A3";
+            public const string ZoomOut = "\uE71F";
+            public const string Copy = "\uE8C8";
+            public const string Save = "\uE74E";
+            public const string Check = "\uE73E";
+            public const string Info = "\uE946";
+            public const string Photo = "\uE91B";
+            public const string Number = "\uE8EF";     // calculator
+            public const string RotateLeft = "\uE80C";
+            public const string RotateRight = "\uE80D";
+            public const string Crop = "\uE7A8";
+            public const string Reset = "\uE72C";     // refresh
+            public const string Pdf = "\uEA90";       // PDF document
         }
 
         private static string? FirstInstalled(params string[] names)

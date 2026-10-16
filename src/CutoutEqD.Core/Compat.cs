@@ -17,6 +17,8 @@ namespace CutoutEqD.Core
         public static int Max(int a, int b) => System.Math.Max(a, b);
         public static int Min(int a, int b) => System.Math.Min(a, b);
         public static double Max(double a, double b) => System.Math.Max(a, b);
+        public static double Min(double a, double b) => System.Math.Min(a, b);
+        public static double Round(double v, int digits) => System.Math.Round(v, digits);
         public static int Clamp(int v, int lo, int hi) => v < lo ? lo : v > hi ? hi : v;
         public static double Clamp(double v, double lo, double hi) => v < lo ? lo : v > hi ? hi : v;
     }
@@ -24,6 +26,7 @@ namespace CutoutEqD.Core
     internal static class Array
     {
         public static void Fill<T>(T[] a, T v) { for (int i = 0; i < a.Length; i++) a[i] = v; }
+        public static T[] Empty<T>() => System.Array.Empty<T>();
     }
 }
 #endif
