@@ -103,8 +103,21 @@ namespace CutoutEqD.App
         public Pt? ScaleB => _scaleB;
         public string ScaleLabel { get; set; } = "";
         public bool ShowLoupe { get; set; } = true;
-        public bool SoftDrag { get; set; }
-        public double SoftDragRadiusScreen { get; set; } = 40;   // screen px → converted at drag time
+        public bool SoftDrag
+        {
+            get => _softDrag;
+            set { if (_softDrag != value) { _softDrag = value; Invalidate(); } }
+        }
+        private bool _softDrag;
+
+        /// <summary>Soft-drag reach in image pixels, measured along the outline from the dragged vertex.
+        /// Fixed in image space, so the same edit gives the same shape at any zoom.</summary>
+        public double SoftDragRadius
+        {
+            get => _softDragRadius;
+            set { _softDragRadius = Math.Max(1, value); Invalidate(); }
+        }
+        private double _softDragRadius = 40;
         public double Zoom => _zoom;
 
         /// <summary>Highlights the empty-state drop zone while a file is dragged over the window.</summary>
@@ -466,24 +479,34 @@ namespace CutoutEqD.App
                 _outline![_dragVertex] = orig[_dragVertex] + delta;
                 return;
             }
-            // Soft drag: neighbours move with a raised-cosine falloff by arc length along the outline.
-            double radius = SoftDragRadiusScreen / _zoom;
             for (int i = 0; i < n; i++) _outline![i] = orig[i];
-            _outline![_dragVertex] = orig[_dragVertex] + delta;
+            foreach (var (i, wgt) in SoftDragWeights(orig, _dragVertex, _softDragRadius))
+                _outline![i] = orig[i] + delta * wgt;
+        }
+
+        /// <summary>
+        /// Vertices moved by a soft drag of vertex v and how far each moves (1 = as far as the mouse):
+        /// a raised-cosine falloff by arc length along the outline, reaching zero at <paramref name="radius"/>.
+        /// </summary>
+        private static List<(int index, double weight)> SoftDragWeights(List<Pt> p, int v, double radius)
+        {
+            int n = p.Count;
+            var result = new List<(int, double)> { (v, 1.0) };
+            var seen = new HashSet<int> { v };
             foreach (int dir in new[] { 1, -1 })
             {
                 double s = 0;
-                int prev = _dragVertex;
-                for (int k = 1; k < n / 2; k++)
+                int prev = v;
+                for (int k = 1; k <= n / 2; k++)
                 {
-                    int i = ((_dragVertex + dir * k) % n + n) % n;
-                    s += Pt.Distance(orig[i], orig[prev]);
-                    if (s >= radius) break;
-                    double wgt = 0.5 * (1 + Math.Cos(Math.PI * s / radius));
-                    _outline[i] = orig[i] + delta * wgt;
+                    int i = ((v + dir * k) % n + n) % n;
+                    s += Pt.Distance(p[i], p[prev]);
+                    if (s >= radius || !seen.Add(i)) break;
+                    result.Add((i, 0.5 * (1 + Math.Cos(Math.PI * s / radius))));
                     prev = i;
                 }
             }
+            return result;
         }
 
         private void DeleteVertex(int v)
@@ -545,6 +568,7 @@ namespace CutoutEqD.App
 
             g.SmoothingMode = SmoothingMode.AntiAlias;
             g.PixelOffsetMode = PixelOffsetMode.Default;
+            if (_mode == CanvasMode.Edit && _softDrag) DrawSoftDragPreview(g);
             DrawOverlays(g, ToScreen, 1f, _mode == CanvasMode.Edit, true);
             if (_mode == CanvasMode.Crop && _crop is Rectangle crop) DrawCrop(g, crop);
 
@@ -674,6 +698,33 @@ namespace CutoutEqD.App
                 g.SmoothingMode = oldMode;
                 using var tb = new SolidBrush(Color.Magenta);
                 g.DrawString(label, f, tb, mid.X - sz.Width / 2, mid.Y);
+            }
+        }
+
+        /// <summary>
+        /// Shows what a soft drag of the vertex under the mouse (or being dragged) will move: a dashed circle
+        /// of the soft-drag radius, and the affected vertices haloed in proportion to how far they move.
+        /// </summary>
+        private void DrawSoftDragPreview(Graphics g)
+        {
+            int v = _dragVertex >= 0 ? _dragVertex : _hoverVertex;
+            var basis = _dragVertex >= 0 ? _dragOriginal : _outline;
+            if (v < 0 || basis == null || _outline == null || v >= basis.Count || v >= _outline.Count) return;
+
+            var c = ToScreen(_outline[v]);
+            float r = (float)(_softDragRadius * _zoom);
+            using (var fill = new SolidBrush(Color.FromArgb(28, Theme.AccentOnDark)))
+                g.FillEllipse(fill, c.X - r, c.Y - r, 2 * r, 2 * r);
+            using (var pen = new Pen(Color.FromArgb(200, Theme.AccentOnDark), 1.25f) { DashStyle = DashStyle.Dash })
+                g.DrawEllipse(pen, c.X - r, c.Y - r, 2 * r, 2 * r);
+
+            foreach (var (i, w) in SoftDragWeights(basis, v, _softDragRadius))
+            {
+                if (i == v) continue;
+                var p = ToScreen(_outline[i]);
+                float h = 3f + 5f * (float)w;
+                using var b = new SolidBrush(Color.FromArgb((int)(60 + 160 * w), Theme.AccentOnDark));
+                g.FillEllipse(b, p.X - h, p.Y - h, 2 * h, 2 * h);
             }
         }
 

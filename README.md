@@ -28,7 +28,8 @@ dotnet publish src\CutoutEqD.App -c Release -r win-x64 --self-contained true -p:
 3. **Auto-detect** (A): click inside the light aperture.
 4. **Check and adjust**:
    - *Edit outline* (E): drag, insert (click an edge) or delete (right-click / Delete) vertices. Arrow keys nudge by ¼ px (Shift: 1 px).
-     *Soft drag* moves neighbouring vertices too, for smooth reshaping.
+     *Soft drag* moves neighbouring vertices too, for smooth reshaping. Its *reach* slider (or [ and ]) sets how far along the
+     outline the effect extends, in image pixels (shown in mm once the scale is set), independent of zoom. A blue circle previews it.
    - *Draw outline* (D): click round the edge by hand; Enter or double-click closes it.
    - *Threshold*: untick *Automatic threshold* to set it manually. The outline re-detects live unless it has been hand-edited.
    - Ctrl+Z / Ctrl+Y undo and redo.

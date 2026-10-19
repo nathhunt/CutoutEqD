@@ -42,6 +42,8 @@ namespace CutoutEqD.App
         private readonly Label _thresholdValue = new() { AutoSize = false, Size = new Size(36, 26), Text = "128", TextAlign = ContentAlignment.MiddleRight, Font = Theme.UiFont, ForeColor = Theme.Text };
         private readonly NumericUpDown _blur = new() { Minimum = 0, Maximum = 5, DecimalPlaces = 1, Increment = 0.5m, Value = 1.0m, Width = 64, Font = Theme.UiFont, BorderStyle = BorderStyle.FixedSingle };
         private readonly ToggleSwitch _softDrag = new("Soft drag (moves neighbours)");
+        private readonly TrackBar _softRadius = new() { Minimum = 4, Maximum = 200, Value = 40, TickStyle = TickStyle.None, Width = 150, Enabled = false, Margin = Padding.Empty, SmallChange = 2, LargeChange = 10 };
+        private readonly Label _softRadiusValue = new() { AutoSize = false, Size = new Size(Card.ContentWidth - 150, 26), TextAlign = ContentAlignment.MiddleRight, Font = Theme.UiFont, ForeColor = Theme.Text };
         private readonly ToggleSwitch _loupe = new("Show magnifier", on: true);
         private readonly Label _eqd = new() { AutoSize = true, Font = Theme.ResultFont, ForeColor = Theme.Accent, Text = "—", Margin = new Padding(0, 0, 0, 6) };
         private readonly MetricRow _area = new("Area");
@@ -110,7 +112,9 @@ namespace CutoutEqD.App
                 if (!_suppressThresholdEvent) RedetectIfUnedited();
             };
             _blur.ValueChanged += (_, _) => RedetectIfUnedited();
-            _softDrag.CheckedChanged += (_, _) => _canvas.SoftDrag = _softDrag.Checked;
+            _softDrag.CheckedChanged += (_, _) => { _canvas.SoftDrag = _softRadius.Enabled = _softDrag.Checked; UpdateSoftRadiusLabel(); };
+            _softRadius.ValueChanged += (_, _) => { _canvas.SoftDragRadius = _softRadius.Value; UpdateSoftRadiusLabel(); };
+            _canvas.SoftDragRadius = _softRadius.Value;
             _loupe.CheckedChanged += (_, _) => { _canvas.ShowLoupe = _loupe.Checked; _canvas.Invalidate(); };
 
             DragEnter += (_, e) =>
@@ -160,6 +164,27 @@ namespace CutoutEqD.App
             Text = text.ToUpperInvariant(), AutoSize = true, ForeColor = Theme.TextMuted, Font = Theme.SectionFont,
             Margin = new Padding(0, 10, 0, 4)
         };
+
+        private Control SoftRadiusRow()
+        {
+            var caption = new Label
+            {
+                Text = "Soft drag reach", AutoSize = true, Font = Theme.SmallFont, ForeColor = Theme.TextMuted, Margin = new Padding(0, 2, 0, 0)
+            };
+            var row = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Margin = new Padding(0, 0, 0, 4) };
+            row.Controls.Add(_softRadius); row.Controls.Add(_softRadiusValue);
+            var box = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.TopDown, WrapContents = false, Margin = Padding.Empty };
+            box.Controls.Add(caption); box.Controls.Add(row);
+            return box;
+        }
+
+        /// <summary>Reach in image pixels, plus millimetres once the scale is set.</summary>
+        private void UpdateSoftRadiusLabel()
+        {
+            int px = _softRadius.Value;
+            _softRadiusValue.Text = _mmPerPixel is double mm ? $"{px} px · {px * mm:0.#} mm" : $"{px} px";
+            _softRadiusValue.ForeColor = _softRadius.Enabled ? Theme.Text : Theme.TextDisabled;
+        }
 
         private int IconPx => (int)Math.Round(18 * DeviceDpi / 96.0);
 
@@ -286,7 +311,7 @@ namespace CutoutEqD.App
                 ModeBtn(CanvasMode.Draw, "Draw outline manually", Theme.Icons.Draw),
                 ModeBtn(CanvasMode.Edit, "Edit outline", Theme.Icons.Edit),
                 Section("Detection"), _autoThreshold, thrRow, blurRow,
-                Section("Editing"), _softDrag, _loupe);
+                Section("Editing"), _softDrag, SoftRadiusRow(), _loupe);
             panel.Controls.Add(_outlineCard);
 
             var caption = new Label { Text = "Equivalent diameter", AutoSize = true, ForeColor = Theme.TextMuted, Font = Theme.UiFont, Margin = Padding.Empty };
@@ -326,6 +351,10 @@ namespace CutoutEqD.App
                     case Keys.F: _canvas.ZoomToFit(); return true;
                     case Keys.C: _canvas.Mode = CanvasMode.Crop; return true;
                     case Keys.R: RotateImage(clockwise: (keyData & Keys.Shift) == 0); return true;
+                    case Keys.OemOpenBrackets when _canvas.Mode == CanvasMode.Edit && _softDrag.Checked:
+                        _softRadius.Value = Math.Max(_softRadius.Minimum, _softRadius.Value - SoftRadiusStep()); return true;
+                    case Keys.OemCloseBrackets when _canvas.Mode == CanvasMode.Edit && _softDrag.Checked:
+                        _softRadius.Value = Math.Min(_softRadius.Maximum, _softRadius.Value + SoftRadiusStep()); return true;
                 }
             }
             return base.ProcessCmdKey(ref msg, keyData);
@@ -495,6 +524,9 @@ namespace CutoutEqD.App
             UpdateScaleInfo(); UpdateResults();
         }
 
+        /// <summary>[ and ] change the reach by about 10%, so small and large radii both adjust comfortably.</summary>
+        private int SoftRadiusStep() => Math.Max(1, (int)Math.Round(_softRadius.Value * 0.1));
+
         private void UpdateScaleInfo()
         {
             bool set = _mmPerPixel is double && _canvas.ScaleA is Pt && _canvas.ScaleB is Pt;
@@ -508,6 +540,7 @@ namespace CutoutEqD.App
                 _scaleHint.Text = "Not set. Click two well-separated ticks on the ruler (e.g. 0 and 100 mm), zooming in for accuracy.";
             _scaleRef.Visible = _scaleRes.Visible = set;
             _scaleCard.Completed = set;
+            UpdateSoftRadiusLabel();
         }
 
         // ---------------- Detection ----------------
@@ -705,7 +738,7 @@ namespace CutoutEqD.App
                 CanvasMode.Draw => ("Draw outline", "Click around the edge. Right-click/Backspace removes the last point. " +
                                     "Click the first point, double-click or press Enter to close. Esc cancels."),
                 CanvasMode.Edit => ("Edit outline", "Drag a vertex to move it; click on an edge to add a vertex; right-click or Delete removes one. " +
-                                    "Arrow keys nudge the highlighted vertex (Shift = 1 px). Ctrl+Z undoes."),
+                                    "Arrow keys nudge the highlighted vertex (Shift = 1 px). With soft drag on, the blue circle shows its reach; [ and ] resize it. Ctrl+Z undoes."),
                 CanvasMode.Crop => ("Crop", "Drag a box around the cutout and ruler. Press Enter or double-click inside the box to crop; " +
                                     "Esc cancels. The outline and scale line are kept. Reset to original undoes all crops and rotations."),
                 _ => ("Pan", "Drag to move the image. Mouse wheel zooms. Middle-drag or Space+drag pans in any mode.")
