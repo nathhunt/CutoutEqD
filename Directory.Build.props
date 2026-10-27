@@ -5,6 +5,8 @@
   <PropertyGroup>
     <Version>1.1.0</Version>
     <Company>Cutout Equivalent Diameter</Company>
+    <!-- Symbols inside the dll/exe: stack traces keep line numbers, and publish leaves no stray .pdb files. -->
+    <DebugType>embedded</DebugType>
     <Copyright>© $([System.DateTime]::UtcNow.Year)</Copyright>
   </PropertyGroup>
 

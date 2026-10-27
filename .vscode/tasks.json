@@ -39,10 +39,7 @@
       "detail": "Self-contained CutoutEqD.exe in ./publish",
       "type": "process",
       "command": "dotnet",
-      "args": [
-        "publish", "${workspaceFolder}/src/CutoutEqD.App", "-c", "Release", "-r", "win-x64",
-        "--self-contained", "true", "-p:PublishSingleFile=true", "-o", "${workspaceFolder}/publish"
-      ],
+      "args": ["publish", "${workspaceFolder}/src/CutoutEqD.App"],
       "problemMatcher": "$msCompile"
     },
     {

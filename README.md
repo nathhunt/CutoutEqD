@@ -17,8 +17,12 @@ C# Dev Kit extension. *Run Build Task* (Ctrl+Shift+B) builds, F5 debugs the app,
 To build a single self-contained `.exe` for PCs without .NET installed:
 
 ```
-dotnet publish src\CutoutEqD.App -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish
+dotnet publish src\CutoutEqD.App
 ```
+
+This writes `publish\CutoutEqD.exe` (64-bit Windows, about 65 MB, nothing else to copy). The settings live in
+`CutoutEqD.App.csproj`, so no extra flags are needed. In Visual Studio use *Publish* on the app project (profile `win-x64`);
+in VS Code run the *publish (single exe, win-x64)* task.
 
 The version is set once in `Directory.Build.props`. Each build also records the git commit and the build date. The app
 shows them in the title bar and status bar (e.g. `v1.1.0 (5ac6b10, 2026-10-27)`) and in the footer of the PDF report.

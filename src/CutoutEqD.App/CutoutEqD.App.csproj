@@ -14,6 +14,19 @@
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
   </PropertyGroup>
 
+  <!-- "dotnet publish" (or Visual Studio's Publish) produces one self-contained CutoutEqD.exe that runs on
+       64-bit Windows without .NET installed. Only applied when publishing, so normal builds and F5 are unchanged. -->
+  <PropertyGroup Condition="'$(_IsPublishing)' == 'true'">
+    <Configuration Condition="'$(Configuration)' == ''">Release</Configuration>
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>true</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <IncludeNativeLibrariesForSelfExtract>true</IncludeNativeLibrariesForSelfExtract>
+    <EnableCompressionInSingleFile>true</EnableCompressionInSingleFile>
+    <SatelliteResourceLanguages>en</SatelliteResourceLanguages>
+    <PublishDir>$(MSBuildThisFileDirectory)..\..\publish\</PublishDir>
+  </PropertyGroup>
+
   <ItemGroup>
     <ProjectReference Include="..\CutoutEqD.Core\CutoutEqD.Core.csproj" />
   </ItemGroup>
