@@ -3,7 +3,7 @@
   <!-- Shared by every project. Bump Version here for a release; the build adds the git commit
        (e.g. 1.1.0+3f2a9c1…) to InformationalVersion, which the app shows as its build version. -->
   <PropertyGroup>
-    <Version>1.1.0</Version>
+    <Version>1.0.0</Version>
     <Company>Cutout Equivalent Diameter</Company>
     <!-- Symbols inside the dll/exe: stack traces keep line numbers, and publish leaves no stray .pdb files. -->
     <DebugType>embedded</DebugType>
