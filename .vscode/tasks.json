@@ -1,0 +1,62 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build",
+      "detail": "Debug build of the whole solution",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["build", "${workspaceFolder}/CutoutEqD.sln", "-c", "Debug", "/property:GenerateFullPaths=true", "/consoleloggerparameters:NoSummary"],
+      "problemMatcher": "$msCompile",
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "build (Release)",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["build", "${workspaceFolder}/CutoutEqD.sln", "-c", "Release", "/property:GenerateFullPaths=true", "/consoleloggerparameters:NoSummary"],
+      "problemMatcher": "$msCompile",
+      "group": "build"
+    },
+    {
+      "label": "test",
+      "detail": "Run the unit tests (also in the Testing side bar with C# Dev Kit)",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["test", "${workspaceFolder}/CutoutEqD.sln", "/property:GenerateFullPaths=true", "/consoleloggerparameters:NoSummary"],
+      "problemMatcher": "$msCompile",
+      "group": { "kind": "test", "isDefault": true }
+    },
+    {
+      "label": "test with coverage",
+      "detail": "Writes coverage.cobertura.xml under TestResults/",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["test", "${workspaceFolder}/CutoutEqD.sln", "--collect:XPlat Code Coverage", "--results-directory", "${workspaceFolder}/TestResults"],
+      "problemMatcher": "$msCompile",
+      "group": "test"
+    },
+    {
+      "label": "run app",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["run", "--project", "${workspaceFolder}/src/CutoutEqD.App", "-c", "Release"],
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "publish (single exe, win-x64)",
+      "detail": "Self-contained CutoutEqD.exe in ./publish",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["publish", "${workspaceFolder}/src/CutoutEqD.App"],
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "clean",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["clean", "${workspaceFolder}/CutoutEqD.sln"],
+      "problemMatcher": "$msCompile"
+    }
+  ]
+}

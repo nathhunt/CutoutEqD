@@ -1,4 +1,4 @@
-// Shims used only when compiling for .NET Framework 4.8 (the standalone test .exe).
+// Shims used only when compiling for .NET Framework 4.8 (e.g. with csc.exe on a PC without the .NET SDK).
 // The .NET 8 build ignores this file.
 #if !NET5_0_OR_GREATER
 namespace System.Runtime.CompilerServices { internal static class IsExternalInit { } }
