@@ -11,13 +11,17 @@ Requires the [.NET 8 SDK](https://dotnet.microsoft.com/download/dotnet/8.0).
 dotnet run --project src\CutoutEqD.App -c Release
 ```
 
-Or open `CutoutEqD.sln` in Visual Studio 2022 and press F5. An image path can be passed on the command line: `CutoutEqD.exe scan.png`.
+Or open `CutoutEqD.sln` in Visual Studio 2022 and press F5. In VS Code, open the folder and install the recommended
+C# Dev Kit extension. *Run Build Task* (Ctrl+Shift+B) builds, F5 debugs the app, and *Tasks: Run Task* has test, run and publish. An image path can be passed on the command line: `CutoutEqD.exe scan.png`.
 
 To build a single self-contained `.exe` for PCs without .NET installed:
 
 ```
 dotnet publish src\CutoutEqD.App -c Release -r win-x64 --self-contained true -p:PublishSingleFile=true -o publish
 ```
+
+The version is set once in `Directory.Build.props`. Each build also records the git commit and the build date. The app
+shows them in the title bar and status bar (e.g. `v1.1.0 (5ac6b10, 2026-10-27)`) and in the footer of the PDF report.
 
 ## Using it
 

@@ -1,0 +1,56 @@
+{
+  "version": "2.0.0",
+  "tasks": [
+    {
+      "label": "build",
+      "detail": "Debug build of the whole solution",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["build", "${workspaceFolder}/CutoutEqD.sln", "-c", "Debug", "/property:GenerateFullPaths=true", "/consoleloggerparameters:NoSummary"],
+      "problemMatcher": "$msCompile",
+      "group": { "kind": "build", "isDefault": true }
+    },
+    {
+      "label": "build (Release)",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["build", "${workspaceFolder}/CutoutEqD.sln", "-c", "Release", "/property:GenerateFullPaths=true", "/consoleloggerparameters:NoSummary"],
+      "problemMatcher": "$msCompile",
+      "group": "build"
+    },
+    {
+      "label": "test",
+      "detail": "Run the core library tests",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["run", "--project", "${workspaceFolder}/tests/CutoutEqD.Tests", "-c", "Debug"],
+      "problemMatcher": "$msCompile",
+      "group": { "kind": "test", "isDefault": true }
+    },
+    {
+      "label": "run app",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["run", "--project", "${workspaceFolder}/src/CutoutEqD.App", "-c", "Release"],
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "publish (single exe, win-x64)",
+      "detail": "Self-contained CutoutEqD.exe in ./publish",
+      "type": "process",
+      "command": "dotnet",
+      "args": [
+        "publish", "${workspaceFolder}/src/CutoutEqD.App", "-c", "Release", "-r", "win-x64",
+        "--self-contained", "true", "-p:PublishSingleFile=true", "-o", "${workspaceFolder}/publish"
+      ],
+      "problemMatcher": "$msCompile"
+    },
+    {
+      "label": "clean",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["clean", "${workspaceFolder}/CutoutEqD.sln"],
+      "problemMatcher": "$msCompile"
+    }
+  ]
+}

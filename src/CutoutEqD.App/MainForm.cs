@@ -56,6 +56,7 @@ namespace CutoutEqD.App
         private readonly ToolStripStatusLabel _statusMsg = new() { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
         private readonly ToolStripStatusLabel _statusPos = new() { AutoSize = false, Width = 380, TextAlign = ContentAlignment.MiddleRight };
         private readonly ToolStripStatusLabel _statusZoom = new() { AutoSize = false, Width = 90 };
+        private readonly ToolStripStatusLabel _statusVersion = new() { ForeColor = Theme.TextMuted, Text = "v" + BuildInfo.Full, ToolTipText = "Build version" };
         private readonly Dictionary<CanvasMode, ToolStripButton> _modeButtons = new();
         private readonly Dictionary<CanvasMode, (Image? normal, Image? active)> _modeIcons = new();
         private readonly Dictionary<CanvasMode, ModernButton> _sideModeButtons = new();
@@ -68,7 +69,7 @@ namespace CutoutEqD.App
             // Layout below is in 96-dpi pixels; WinForms scales it to the monitor's DPI.
             AutoScaleDimensions = new SizeF(96F, 96F);
             AutoScaleMode = AutoScaleMode.Dpi;
-            Text = "Cutout Equivalent Diameter";
+            Text = $"Cutout Equivalent Diameter {BuildInfo.Version}";
             Font = Theme.UiFont;
             BackColor = Theme.Window;
             ForeColor = Theme.Text;
@@ -83,7 +84,7 @@ namespace CutoutEqD.App
             tools.Renderer = renderer;
             var side = BuildSidePanel();
             var status = new StatusStrip { Renderer = renderer, SizingGrip = false, Font = Theme.SmallFont, Padding = new Padding(8, 2, 8, 2) };
-            status.Items.AddRange(new ToolStripItem[] { _statusMsg, _statusZoom, _statusPos });
+            status.Items.AddRange(new ToolStripItem[] { _statusMsg, _statusZoom, _statusPos, _statusVersion });
 
             Controls.Add(_canvas);
             Controls.Add(side);
@@ -417,7 +418,7 @@ namespace CutoutEqD.App
                 _originalImage = (Bitmap)bmp.Clone();
                 _transform = ImageTransform.Identity;
                 UpdateResetButtons();
-                Text = $"Cutout Equivalent Diameter — {name}";
+                Text = $"Cutout Equivalent Diameter {BuildInfo.Version} — {name}";
                 _canvas.Mode = CanvasMode.Scale;
                 _statusMsg.Text = $"Loaded {bmp.Width}×{bmp.Height}. Step 1: click two points on the ruler.";
             }
@@ -687,12 +688,11 @@ namespace CutoutEqD.App
             try
             {
                 var jpeg = BitmapUtil.ToJpeg(img, 3000, out int jw, out int jh);
-                var version = typeof(MainForm).Assembly.GetName().Version;
                 var pdf = ReportBuilder.Build(new ReportData
                 {
                     ImageName = _imageName,
                     Date = DateTime.Now,
-                    AppVersion = version == null ? "" : version.ToString(3),
+                    AppVersion = BuildInfo.Full,
                     Jpeg = jpeg, JpegWidth = jw, JpegHeight = jh,
                     ImageWidth = img.Width, ImageHeight = img.Height,
                     Outline = new List<Pt>(o),
