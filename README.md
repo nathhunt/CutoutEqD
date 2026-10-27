@@ -65,13 +65,43 @@ are tabulated for circular fields [4, 5], so the equal-area circle is used. **Ch
 
 ## Accuracy
 
-`dotnet run --project tests\CutoutEqD.Tests` runs a dependency-free test harness on synthetic scans with known areas:
+The detector is checked against synthetic scans with known areas (anti-aliased edges, noise and dust specks):
 
 | Case | Area error |
 |---|---|
 | Circle, r = 100 px | 0.01 % |
 | Rotated ellipse with noise (σ = 10 grey levels) and dark specks inside | 0.06 % |
 | Rectangle 200 × 120 px | 0.10 % |
+
+## Tests
+
+```
+dotnet test
+```
+
+The xUnit tests in `tests\CutoutEqD.Tests` cover the measurement library (`CutoutEqD.Core`), one file per area:
+
+| File | What it checks |
+|---|---|
+| `CutoutDetectorTests` | Detection on the synthetic scans above; brightness-independent 50 % threshold; manual threshold; dust specks; rejected clicks |
+| `ImagingTests` | Gaussian blur, histogram and Otsu threshold, flood fill (4-connected), hole filling, sub-pixel contour tracing |
+| `PolygonTests`, `FieldMetricsTests` | Area, perimeter, centroid, hit-testing, simplification; EqD and 4A/P in cm |
+| `ImageTransformTests` | Rotate and crop move the outline and scale points exactly and can be undone |
+| `PdfTests` | The PDF is well formed (every cross-reference offset is checked); text escaping; report contents |
+
+In VS Code the tests also appear in the *Testing* side bar (C# Dev Kit), and in Visual Studio in *Test Explorer*.
+`dotnet test --collect:"XPlat Code Coverage"` writes a Cobertura coverage report. GitHub Actions runs the tests on every push and pull request.
+
+To check a real scan, convert it to an 8-bit binary PGM and point the optional `RealScanTests` at it:
+
+```
+set CUTOUTEQD_SCAN=scan.pgm
+set CUTOUTEQD_MM_PER_PX=0.0847
+set CUTOUTEQD_SEED=812,640
+dotnet test --filter RealScanTests --logger "console;verbosity=detailed"
+```
+
+It prints the measurements and writes the outline to `scan.outline.txt`. Without `CUTOUTEQD_SCAN` it is skipped.
 
 ## Things that affect the result
 

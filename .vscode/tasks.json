@@ -20,12 +20,21 @@
     },
     {
       "label": "test",
-      "detail": "Run the core library tests",
+      "detail": "Run the unit tests (also in the Testing side bar with C# Dev Kit)",
       "type": "process",
       "command": "dotnet",
-      "args": ["run", "--project", "${workspaceFolder}/tests/CutoutEqD.Tests", "-c", "Debug"],
+      "args": ["test", "${workspaceFolder}/CutoutEqD.sln", "/property:GenerateFullPaths=true", "/consoleloggerparameters:NoSummary"],
       "problemMatcher": "$msCompile",
       "group": { "kind": "test", "isDefault": true }
+    },
+    {
+      "label": "test with coverage",
+      "detail": "Writes coverage.cobertura.xml under TestResults/",
+      "type": "process",
+      "command": "dotnet",
+      "args": ["test", "${workspaceFolder}/CutoutEqD.sln", "--collect:XPlat Code Coverage", "--results-directory", "${workspaceFolder}/TestResults"],
+      "problemMatcher": "$msCompile",
+      "group": "test"
     },
     {
       "label": "run app",
