@@ -41,8 +41,14 @@ shows them in the title bar and status bar (e.g. `v1.1.0 (5ac6b10, 2026-10-27)`)
    - *Draw outline* (D): click round the edge by hand; Enter or double-click closes it.
    - *Threshold*: untick *Automatic threshold* to set it manually. The outline re-detects live unless it has been hand-edited.
    - Ctrl+Z / Ctrl+Y undo and redo.
-5. **Results**: *Copy results* (Ctrl+C) or *Save PDF report…* (Ctrl+S). The PDF is one A4 page with EqD, area, perimeter, 4A/P,
-   the scale and threshold settings, and the image with the outline drawn on it.
+5. **Choose the value to report.** EqD and 4A/P are both shown large; click one to choose it (there is no default):
+   - **EqD**: compact shapes such as circles, ellipses and rounded cutouts.
+   - **4A/P**: elongated or rectangular cutouts.
+
+   Loading a new image clears the choice; editing the outline keeps it.
+6. **Results**: *Save PDF report…* (Ctrl+S) or *Copy results* (Ctrl+C). The report can only be saved once a value is chosen.
+   The PDF is one A4 page: the chosen value large, marked "Selected by user"; a table with the other value, area, perimeter,
+   the scale and threshold settings; and the image with the outline drawn on it.
 
 Pan with middle-drag, Space+drag or *Pan* (H). *Fit* (F) re-centres the image.
 
@@ -60,8 +66,12 @@ Pan with middle-drag, Space+drag or *Pan* (H). *Fit* (F) re-centres the image.
 5. **Measurements.** Area is calculated from the polygon with the shoelace formula, so hand edits change the result exactly as shown.
 
 **EqD = 2·√(A/π)**: the diameter of the circle with the same area as the cutout. Kilovoltage dosimetry data, such as backscatter factors,
-are tabulated for circular fields [4, 5], so the equal-area circle is used. **Check that this matches your department's protocol.**
-4A/P [6] is shown for reference only; for a circle it equals the diameter.
+are tabulated for circular fields [4, 5].
+
+**4A/P** [6]: Sterling's equivalent-square rule, giving the side of a square field. It accounts for elongation, which the equal-area
+circle ignores. For a circle it equals the diameter.
+
+The user chooses which value to report. **Check that the choice matches your department's protocol.**
 
 ## Accuracy
 

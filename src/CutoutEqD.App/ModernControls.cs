@@ -49,7 +49,8 @@ namespace CutoutEqD.App
             float s = DeviceDpi / 96f;
 
             Color fill, border, fore;
-            if (!Enabled) { fill = Theme.Hover; border = Theme.Border; fore = Theme.TextDisabled; }
+            if (!Enabled && Primary) { fill = border = Theme.AccentDisabled; fore = Color.White; }
+            else if (!Enabled) { fill = Theme.Hover; border = Theme.Border; fore = Theme.TextDisabled; }
             else if (Primary)
             {
                 fill = _pressed ? Theme.AccentPressed : _hover ? Theme.AccentHover : Theme.Accent;
@@ -218,6 +219,119 @@ namespace CutoutEqD.App
             var tr = new Rectangle(x, cy - (int)(14 * s), Width - x - pad, (int)(28 * s));
             TextRenderer.DrawText(g, _title, Theme.TitleFont, tr, Theme.Text,
                 TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+        }
+    }
+
+    /// <summary>A selectable result: radio mark and caption, a large value and a formula line. Behaves like a radio
+    /// button (click, Space or Enter selects it); the owner keeps the pair exclusive.</summary>
+    internal sealed class ValueTile : Control
+    {
+        private string _value = "—";
+        private bool _selected, _hover;
+
+        public ValueTile(string caption, string formula)
+        {
+            SetStyle(ControlStyles.OptimizedDoubleBuffer | ControlStyles.AllPaintingInWmPaint | ControlStyles.UserPaint |
+                     ControlStyles.ResizeRedraw | ControlStyles.Selectable, true);
+            Text = caption;
+            Formula = formula;
+            Font = Theme.UiFont;
+            Size = new Size((Card.ContentWidth - 6) / 2, 78);
+            Margin = Padding.Empty;
+            Cursor = Cursors.Hand;
+            TabStop = true;
+            AccessibleRole = AccessibleRole.RadioButton;
+        }
+
+        public string Formula { get; }
+
+        public string Value
+        {
+            get => _value;
+            set { if (_value != value) { _value = value; AccessibleDescription = value; Invalidate(); } }
+        }
+
+        public bool Selected
+        {
+            get => _selected;
+            set { if (_selected != value) { _selected = value; AccessibilityNotifyClients(AccessibleEvents.StateChange, -1); Invalidate(); } }
+        }
+
+        protected override void OnMouseEnter(EventArgs e) { base.OnMouseEnter(e); _hover = true; Invalidate(); }
+        protected override void OnMouseLeave(EventArgs e) { base.OnMouseLeave(e); _hover = false; Invalidate(); }
+        protected override void OnEnabledChanged(EventArgs e) { base.OnEnabledChanged(e); Cursor = Enabled ? Cursors.Hand : Cursors.Default; Invalidate(); }
+        protected override void OnGotFocus(EventArgs e) { base.OnGotFocus(e); Invalidate(); }
+        protected override void OnLostFocus(EventArgs e) { base.OnLostFocus(e); Invalidate(); }
+        protected override void OnMouseDown(MouseEventArgs e) { base.OnMouseDown(e); if (e.Button == MouseButtons.Left && Enabled) Focus(); }
+
+        protected override bool IsInputKey(Keys keyData) => keyData is Keys.Space or Keys.Enter || base.IsInputKey(keyData);
+
+        protected override AccessibleObject CreateAccessibilityInstance() => new TileAccessibleObject(this);
+
+        private sealed class TileAccessibleObject(ValueTile owner) : ControlAccessibleObject(owner)
+        {
+            public override AccessibleStates State => base.State | (owner.Selected ? AccessibleStates.Checked : AccessibleStates.None);
+        }
+
+        protected override void OnKeyDown(KeyEventArgs e)
+        {
+            base.OnKeyDown(e);
+            if (e.KeyCode is Keys.Space or Keys.Enter && Enabled) { OnClick(EventArgs.Empty); e.Handled = true; }
+        }
+
+        protected override void OnPaint(PaintEventArgs e)
+        {
+            var g = e.Graphics;
+            g.Clear(Theme.BackOf(this));
+            g.SmoothingMode = SmoothingMode.AntiAlias;
+            float s = DeviceDpi / 96f;
+
+            bool on = _selected && Enabled;
+            Color fill = on ? Theme.AccentSoft : _hover && Enabled ? Theme.Hover : Theme.Surface;
+            Color border = on ? Theme.Accent : Theme.BorderStrong;
+            var r = new RectangleF(1, 1, Width - 2.5f, Height - 2.5f);
+            using (var path = Theme.RoundedRect(r, 6 * s))
+            {
+                using (var b = new SolidBrush(fill)) g.FillPath(b, path);
+                using var p = new Pen(border, (on ? 2f : 1f) * s);
+                g.DrawPath(p, path);
+            }
+            if (Focused && ShowFocusCues)
+            {
+                using var path = Theme.RoundedRect(RectangleF.Inflate(r, -3 * s, -3 * s), 4 * s);
+                using var pen = new Pen(Theme.Accent, 1f * s) { DashStyle = DashStyle.Dot };
+                g.DrawPath(pen, path);
+            }
+
+            // Radio mark and caption.
+            int pad = (int)(9 * s);
+            float d = 14 * s, cy = pad + 8 * s;
+            var radio = new RectangleF(pad, cy - d / 2, d, d);
+            using (var b = new SolidBrush(Theme.Surface)) g.FillEllipse(b, radio);
+            using (var p = new Pen(on ? Theme.Accent : Enabled ? Theme.TextMuted : Theme.TextDisabled, 1.5f * s)) g.DrawEllipse(p, radio);
+            if (on)
+            {
+                var dot = RectangleF.Inflate(radio, -3.5f * s, -3.5f * s);
+                using var b = new SolidBrush(Theme.Accent);
+                g.FillEllipse(b, dot);
+            }
+            Color muted = Enabled ? Theme.TextMuted : Theme.TextDisabled;
+            int tx = (int)(radio.Right + 6 * s);
+            TextRenderer.DrawText(g, Text, Font, new Rectangle(tx, (int)(cy - 10 * s), Width - tx - pad, (int)(20 * s)), muted,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
+
+            // Large value, shrunk if it would not fit.
+            var vr = new Rectangle(pad, (int)(26 * s), Width - 2 * pad, (int)(30 * s));
+            Color valueColor = !Enabled ? Theme.TextDisabled : on ? Theme.Accent : Theme.Text;
+            var font = Theme.TileValueFont;
+            int needed = TextRenderer.MeasureText(_value, font, Size.Empty, TextFormatFlags.NoPadding).Width;
+            Font? shrunk = needed > vr.Width ? new Font(font.FontFamily, Math.Max(9f, font.Size * vr.Width / needed), font.Style) : null;
+            TextRenderer.DrawText(g, _value, shrunk ?? font, vr, valueColor,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.SingleLine);
+            shrunk?.Dispose();
+
+            TextRenderer.DrawText(g, Formula, Theme.SmallFont, new Rectangle(pad, (int)(56 * s), Width - 2 * pad, (int)(16 * s)), muted,
+                TextFormatFlags.Left | TextFormatFlags.VerticalCenter | TextFormatFlags.NoPadding | TextFormatFlags.EndEllipsis);
         }
     }
 

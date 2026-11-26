@@ -45,12 +45,19 @@ namespace CutoutEqD.App
         private readonly TrackBar _softRadius = new() { Minimum = 4, Maximum = 200, Value = 40, TickStyle = TickStyle.None, Width = 150, Enabled = false, Margin = Padding.Empty, SmallChange = 2, LargeChange = 10 };
         private readonly Label _softRadiusValue = new() { AutoSize = false, Size = new Size(Card.ContentWidth - 150, 26), TextAlign = ContentAlignment.MiddleRight, Font = Theme.UiFont, ForeColor = Theme.Text };
         private readonly ToggleSwitch _loupe = new("Show magnifier", on: true);
-        private readonly Label _eqd = new() { AutoSize = true, Font = Theme.ResultFont, ForeColor = Theme.Accent, Text = "—", Margin = new Padding(0, 0, 0, 6) };
+        private readonly ValueTile _eqdTile = new("EqD", "2√(A/π)");
+        private readonly ValueTile _fourAPTile = new("4A/P", "equiv. square");
         private readonly MetricRow _area = new("Area");
         private readonly MetricRow _perimeter = new("Perimeter");
-        private readonly MetricRow _fourAP = new("4A/P");
         private readonly MetricRow _vertices = new("Vertices");
         private readonly Label _resultNote = Hint("");
+        private readonly Label _chooseNote = new()
+        {
+            Text = "⚠ Choose EqD or 4A/P to save the report.", AutoSize = true, MaximumSize = new Size(Card.ContentWidth, 0),
+            ForeColor = Theme.Caution, Font = Theme.SmallFont, Margin = new Padding(0, 0, 0, 2), Visible = false
+        };
+        private ModernButton _saveButton = null!;
+        private ReportedValue? _reported;   // the user's choice; cleared when a new image is loaded
         private readonly Callout _help = new();
         private Card _scaleCard = null!, _outlineCard = null!, _resultCard = null!;
         private readonly ToolStripStatusLabel _statusMsg = new() { Spring = true, TextAlign = ContentAlignment.MiddleLeft };
@@ -315,12 +322,24 @@ namespace CutoutEqD.App
                 Section("Editing"), _softDrag, SoftRadiusRow(), _loupe);
             panel.Controls.Add(_outlineCard);
 
-            var caption = new Label { Text = "Equivalent diameter", AutoSize = true, ForeColor = Theme.TextMuted, Font = Theme.UiFont, Margin = Padding.Empty };
-            _vertices.Margin = new Padding(0, 0, 0, 8);
+            var tiles = new FlowLayoutPanel { AutoSize = true, FlowDirection = FlowDirection.LeftToRight, WrapContents = false, Margin = Padding.Empty };
+            _eqdTile.Margin = new Padding(0, 0, 6, 0);
+            _eqdTile.AccessibleName = "Report equivalent diameter";
+            _fourAPTile.AccessibleName = "Report 4A/P";
+            _eqdTile.Click += (_, _) => ChooseReported(ReportedValue.EquivalentDiameter);
+            _fourAPTile.Click += (_, _) => ChooseReported(ReportedValue.FourAOverP);
+            tiles.Controls.Add(_eqdTile); tiles.Controls.Add(_fourAPTile);
+            var guidance = Hint("EqD: compact shapes such as circles, ellipses and rounded cutouts.\n" +
+                                "4A/P: elongated or rectangular cutouts.");
+            guidance.Margin = new Padding(0, 8, 0, 6);
+            _resultNote.Margin = new Padding(0, 0, 0, 6);
+            _vertices.Margin = new Padding(0, 0, 0, 10);
+            _saveButton = Btn("Save PDF report…", Theme.Icons.Pdf, (_, _) => SaveReport(), primary: true);
             _resultCard = new Card("Result", "3",
-                caption, _eqd, _area, _perimeter, _fourAP, _vertices, _resultNote,
-                Btn("Copy results", Theme.Icons.Copy, (_, _) => CopyResults(), primary: true),
-                Btn("Save PDF report…", Theme.Icons.Pdf, (_, _) => SaveReport()));
+                Section("Choose the value to report"), tiles, guidance, _resultNote, _area, _perimeter, _vertices,
+                _saveButton,
+                Btn("Copy results", Theme.Icons.Copy, (_, _) => CopyResults()),
+                _chooseNote);
             panel.Controls.Add(_resultCard);
 
             panel.Controls.Add(_help);
@@ -411,6 +430,7 @@ namespace CutoutEqD.App
                 _gray = BitmapUtil.ToGray(bmp);
                 _blurred = null; _blurredSigma = -1;
                 _imageName = name;
+                _reported = null;
                 _mmPerPixel = null; _lastSeed = null; _outlineFromDetection = false;
                 _canvas.Image = bmp;
                 old?.Dispose();
@@ -614,12 +634,19 @@ namespace CutoutEqD.App
         {
             var o = _canvas.Outline;
             bool hasOutline = o != null && o.Count >= 3;
+            bool measured = hasOutline && _mmPerPixel != null;
             _outlineCard.Completed = hasOutline;
-            _resultCard.Completed = hasOutline && _mmPerPixel != null;
+            _resultCard.Completed = measured && _reported != null;
+            _eqdTile.Enabled = _fourAPTile.Enabled = measured;
+            _eqdTile.Selected = _reported == ReportedValue.EquivalentDiameter;
+            _fourAPTile.Selected = _reported == ReportedValue.FourAOverP;
+            _saveButton.Enabled = measured && _reported != null;
+            _chooseNote.Visible = measured && _reported == null;
+            _resultNote.Visible = !measured;
             if (o == null || o.Count < 3)
             {
-                _eqd.Text = "—";
-                _area.Value = _perimeter.Value = _fourAP.Value = _vertices.Value = "—";
+                _eqdTile.Value = _fourAPTile.Value = "—";
+                _area.Value = _perimeter.Value = _vertices.Value = "—";
                 _resultNote.Text = "No outline yet.";
                 return;
             }
@@ -628,19 +655,27 @@ namespace CutoutEqD.App
             if (_mmPerPixel is double s)
             {
                 var m = FieldMetrics.From(o, s);
-                _eqd.Text = $"{m.EquivalentDiameterCm:F2} cm";
+                _eqdTile.Value = $"{m.EquivalentDiameterCm:F2} cm";
+                _fourAPTile.Value = $"{m.FourAOverPCm:F2} cm";
                 _area.Value = $"{m.AreaCm2:F2} cm²";
                 _perimeter.Value = $"{m.PerimeterCm:F2} cm";
-                _fourAP.Value = $"{m.FourAOverPCm:F2} cm";
-                _resultNote.Text = "EqD = 2√(A/π): diameter of the circle with the same area as the outline.";
             }
             else
             {
-                _eqd.Text = "—";
+                _eqdTile.Value = _fourAPTile.Value = "—";
                 _area.Value = $"{areaPx:F0} px²";
-                _perimeter.Value = _fourAP.Value = "—";
+                _perimeter.Value = "—";
                 _resultNote.Text = "Set the scale on the ruler to get cm.";
             }
+        }
+
+        private void ChooseReported(ReportedValue value)
+        {
+            _reported = value;
+            UpdateResults();
+            _statusMsg.Text = value == ReportedValue.EquivalentDiameter
+                ? "Reporting the equivalent diameter (EqD)."
+                : "Reporting 4A/P (equivalent square side).";
         }
 
         private string ResultsText()
@@ -650,6 +685,12 @@ namespace CutoutEqD.App
             var m = FieldMetrics.From(o, s);
             var sb = new StringBuilder();
             sb.AppendLine($"Image: {_imageName}");
+            sb.AppendLine(_reported switch
+            {
+                ReportedValue.EquivalentDiameter => $"Reported value (selected by user): EqD = {m.EquivalentDiameterCm:F2} cm",
+                ReportedValue.FourAOverP => $"Reported value (selected by user): 4A/P = {m.FourAOverPCm:F2} cm",
+                _ => "Reported value: not chosen",
+            });
             sb.AppendLine($"Scale: {1 / s:F3} px/mm ({_knownDistanceMm:0.##} mm reference)");
             sb.AppendLine($"Area: {m.AreaCm2:F2} cm²");
             sb.AppendLine($"Perimeter: {m.PerimeterCm:F2} cm");
@@ -677,10 +718,15 @@ namespace CutoutEqD.App
                 _statusMsg.Text = "Set the scale and outline first.";
                 return;
             }
+            if (_reported is not ReportedValue reported)
+            {
+                _statusMsg.Text = "Choose EqD or 4A/P first.";
+                return;
+            }
             using var dlg = new SaveFileDialog
             {
                 Title = "Save PDF report", Filter = "PDF document|*.pdf", DefaultExt = "pdf",
-                FileName = Path.GetFileNameWithoutExtension(_imageName) + "_EqD.pdf"
+                FileName = Path.GetFileNameWithoutExtension(_imageName) + (reported == ReportedValue.EquivalentDiameter ? "_EqD.pdf" : "_4AP.pdf")
             };
             if (dlg.ShowDialog(this) != DialogResult.OK) return;
 
@@ -700,6 +746,7 @@ namespace CutoutEqD.App
                     KnownDistanceMm = _knownDistanceMm, MmPerPixel = mm,
                     ThresholdDescription = ThresholdDescription(),
                     SmoothingDescription = _outlineFromDetection ? $"{_blur.Value:0.0} px" : "",
+                    Reported = reported,
                 });
                 File.WriteAllBytes(dlg.FileName, pdf);
                 _statusMsg.Text = "Saved " + dlg.FileName;
