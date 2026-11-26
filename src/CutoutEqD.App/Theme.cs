@@ -31,6 +31,8 @@ namespace CutoutEqD.App
         public static readonly Color AccentPressed = Color.FromArgb(0, 78, 152);
         public static readonly Color AccentSoft = Color.FromArgb(226, 238, 250);
         public static readonly Color AccentSoftHover = Color.FromArgb(212, 229, 247);
+        public static readonly Color AccentDisabled = Color.FromArgb(185, 205, 227);   // primary button, not yet available
+        public static readonly Color Caution = Color.FromArgb(157, 93, 0);
         public static readonly Color Success = Color.FromArgb(15, 123, 15);
 
         // Canvas (dark, so the scan and overlays stand out)
@@ -48,6 +50,7 @@ namespace CutoutEqD.App
         public static readonly Font SectionFont = new(SemiboldFamilyName, 8.25f);
         public static readonly Font TitleFont = new(SemiboldFamilyName, 10.5f);
         public static readonly Font ResultFont = new(SemiboldFamilyName, 26f);
+        public static readonly Font TileValueFont = new(SemiboldFamilyName, 17f);
         public static readonly Font? IconFont = IconFamilyName == null ? null : new Font(IconFamilyName, 10f);
         public static readonly Font? LargeIconFont = IconFamilyName == null ? null : new Font(IconFamilyName, 28f);
         public static readonly Font EmptyTitleFont = new(SemiboldFamilyName, 13f);

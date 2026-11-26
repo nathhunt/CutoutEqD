@@ -183,3 +183,12 @@ public sealed record FieldMetrics(double AreaCm2, double PerimeterCm, double Equ
         return new FieldMetrics(area, per, eqd, fourAP);
     }
 }
+
+/// <summary>Which field-size value the user has chosen to report.</summary>
+public enum ReportedValue
+{
+    /// <summary>Equivalent diameter, 2√(A/π): for compact shapes such as circles, ellipses and rounded cutouts.</summary>
+    EquivalentDiameter,
+    /// <summary>4A/P (equivalent square side): for elongated or rectangular cutouts.</summary>
+    FourAOverP,
+}

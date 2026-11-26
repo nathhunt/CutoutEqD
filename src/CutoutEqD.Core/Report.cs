@@ -28,9 +28,11 @@ public sealed class ReportData
     public double MmPerPixel { get; set; }
     public string ThresholdDescription { get; set; } = "";
     public string SmoothingDescription { get; set; } = "";
+    /// <summary>The value the user chose to report; it is printed large.</summary>
+    public ReportedValue Reported { get; set; }
 }
 
-/// <summary>Lays out the measurement record: header, results, the annotated image and a method note.</summary>
+/// <summary>Lays out the measurement record: header, the chosen value and results table, and the annotated image.</summary>
 public static class ReportBuilder
 {
     // Colours match the app (Windows accent blue; outline green and scale magenta as on screen).
@@ -47,24 +49,29 @@ public static class ReportBuilder
 
         // Header
         y -= 18;
-        Color(pg, Ink).Text(left, y, PdfFont.HelveticaBold, 18, "Cutout equivalent diameter");
+        Color(pg, Ink).Text(left, y, PdfFont.HelveticaBold, 18, "Cutout field size");
         y -= 16;
         Color(pg, Muted).Text(left, y, PdfFont.Helvetica, 9.5,
             $"{d.ImageName}  ·  {d.Date.ToString("d MMMM yyyy, HH:mm", CultureInfo.CurrentCulture)}");
         y -= 12;
         Stroke(pg, Hairline).LineWidth(0.75).Line(left, y, right, y);
 
-        // Results: big EqD on the left, table on the right.
+        // Results: the chosen value large on the left, table (including the other value) on the right.
+        bool eqd = d.Reported == ReportedValue.EquivalentDiameter;
         double top = y - 22;
-        Color(pg, Muted).Text(left, top, PdfFont.Helvetica, 9.5, "Equivalent diameter");
-        Color(pg, Accent).Text(left, top - 34, PdfFont.HelveticaBold, 32, $"{m.EquivalentDiameterCm:F2} cm");
-        Color(pg, Muted).Text(left, top - 52, PdfFont.Helvetica, 8.5, "EqD = 2√(A/π)");
+        Color(pg, Muted).Text(left, top, PdfFont.Helvetica, 9.5, eqd ? "Equivalent diameter" : "4A/P (equivalent square side)");
+        Color(pg, Accent).Text(left, top - 34, PdfFont.HelveticaBold, 32, $"{(eqd ? m.EquivalentDiameterCm : m.FourAOverPCm):F2} cm");
+        Color(pg, Muted).Text(left, top - 52, PdfFont.Helvetica, 8.5, eqd ? "EqD = 2√(A/π)" : "4A/P = 4 × area ÷ perimeter");
+        const string tag = "Selected by user";
+        double tagW = PdfPage.TextWidth(PdfFont.Helvetica, 8, tag) + 10;
+        Stroke(pg, Accent).LineWidth(0.75).RoundedRect(left, top - 72, tagW, 13, 3).StrokePath();
+        Color(pg, Accent).Text(left + 5, top - 68.5, PdfFont.Helvetica, 8, tag);
 
         var rows = new List<(string, string)>
         {
             ("Area", $"{m.AreaCm2:F2} cm²"),
             ("Perimeter", $"{m.PerimeterCm:F2} cm"),
-            ("4A/P", $"{m.FourAOverPCm:F2} cm"),
+            eqd ? ("4A/P", $"{m.FourAOverPCm:F2} cm") : ("Equivalent diameter", $"{m.EquivalentDiameterCm:F2} cm"),
             ("Scale", $"{1 / d.MmPerPixel:F3} px/mm  ({25.4 / d.MmPerPixel:F0} dpi)"),
             ("Scale reference", $"{d.KnownDistanceMm:0.##} mm over {Pt.Distance(d.ScaleA, d.ScaleB):F1} px"),
             ("Edge threshold", d.ThresholdDescription),
@@ -83,7 +90,7 @@ public static class ReportBuilder
             ty -= rowH;
             Stroke(pg, Hairline).LineWidth(0.5).Line(tableLeft, ty, right, ty);
         }
-        y = Math.Min(top - 64, ty) - 18;
+        y = Math.Min(top - 76, ty) - 18;
 
         // Footer
         double footerTop = margin + 14;
@@ -126,7 +133,7 @@ public static class ReportBuilder
             Stroke(pg, Hairline).LineWidth(0.75).Rect(ix, iy, iw, ih).StrokePath();
         }
 
-        return pg.ToBytes("Cutout equivalent diameter — " + d.ImageName);
+        return pg.ToBytes("Cutout field size — " + d.ImageName);
     }
 
     private static PdfPage Color(PdfPage pg, (byte r, byte g, byte b) c) => pg.Fill(c.r, c.g, c.b);
